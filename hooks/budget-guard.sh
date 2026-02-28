@@ -18,8 +18,8 @@ fi
 # ── Read stdin ────────────────────────────────────────────────────────────────
 INPUT="$(cat)"
 
-SESSION_ID="$(echo "$INPUT" | jq -r '.session_id // empty')"
-TOOL_NAME="$(echo "$INPUT" | jq -r '.tool_name // empty')"
+SESSION_ID="$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)" || true
+TOOL_NAME="$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)" || true
 
 # Fallback: if no session_id, use parent PID for isolation
 if [[ -z "$SESSION_ID" ]]; then
