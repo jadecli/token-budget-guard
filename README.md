@@ -8,16 +8,33 @@ Deterministic tool call budgets, loop detection, and circuit breaking for Claude
 
 ## Install
 
+**One-liner** (clones to `~/.claude/plugins/` and hooks into settings):
+
 ```bash
-git clone https://github.com/jadecli/token-budget-guard.git
-claude --plugin-dir ./token-budget-guard
+curl -fsSL https://raw.githubusercontent.com/jadecli/token-budget-guard/main/install.sh | bash
 ```
 
-Or add to your Claude Code settings:
+**From inside Claude Code** (if the plugin is already loaded):
+
+```
+/token-budget-guard:install
+```
+
+**Manual:**
+
+```bash
+git clone https://github.com/jadecli/token-budget-guard.git ~/.claude/plugins/token-budget-guard
+```
+
+Then add the hook to `~/.claude/settings.json`:
 
 ```json
 {
-  "plugins": ["./path/to/token-budget-guard"]
+  "hooks": {
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "~/.claude/plugins/token-budget-guard/hooks/budget-guard.sh" }] }
+    ]
+  }
 }
 ```
 
@@ -71,12 +88,23 @@ Set via environment variables in `.claude/settings.json`:
 | `LOOP_WINDOW` | `10` | Sliding window size for loop detection |
 | `LOOP_THRESHOLD` | `8` | Max same-tool calls in window before block |
 
+## Uninstall
+
+```bash
+~/.claude/plugins/token-budget-guard/uninstall.sh
+```
+
+Or from inside Claude Code: `/token-budget-guard:uninstall`
+
 ## Skills
 
 | Skill | Description |
 |-------|-------------|
-| `/token-budget-guard:status` | Show current call count, remaining budget, top tools, loop risk |
-| `/token-budget-guard:reset` | Reset the counter (escape hatch for intentional long sessions) |
+| `/token-budget-guard:help` | Quick reference — checks, config, skills |
+| `/token-budget-guard:status` | Show call count, remaining budget, top tools, loop risk |
+| `/token-budget-guard:reset` | Reset counter (escape hatch for intentional long sessions) |
+| `/token-budget-guard:install` | Guided install into Claude Code settings |
+| `/token-budget-guard:uninstall` | Remove hook and clean up |
 
 ## State
 
