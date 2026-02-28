@@ -1,92 +1,50 @@
 # token-budget-guard
 
-Deterministic tool call budgets, loop detection, and circuit breaking for Claude Code.
+Stops runaway Claude Code sessions before they burn your budget. Pure bash + jq.
 
-**Problem**: Claude Code has no built-in prevention for runaway loops or token budget overruns. Real users report infinite loops consuming 7GB RAM, $22K/month overages, and sessions stuck for 20+ minutes.
-
-**Solution**: A PreToolUse hook that counts every tool call, detects loops via sliding window, and circuit-breaks at configurable thresholds. Zero tokens consumed — pure bash + jq.
-
-## Install
-
-**One-liner** (clones to `~/.claude/plugins/` and hooks into settings):
+## Quick start
 
 ```bash
+# 1. Install jq (if you don't have it)
+brew install jq          # macOS
+# apt install jq         # Linux
+
+# 2. Install the guard
 curl -fsSL https://raw.githubusercontent.com/jadecli/token-budget-guard/main/install.sh | bash
+
+# 3. Done — starts working on your next Claude Code session
 ```
 
-**From inside Claude Code** (if the plugin is already loaded):
+## What it does
 
-```
-/token-budget-guard:install
-```
+Runs on every tool call. Three checks, in order:
 
-**Manual:**
+1. **Hard limit** — 200 tool calls per session → blocks (exit 2)
+2. **Loop detection** — same tool 8+ times in last 10 calls → blocks (exit 2)
+3. **Warning** — at 70% of limit → injects a heads-up into context (exit 0)
 
-```bash
-git clone https://github.com/jadecli/token-budget-guard.git ~/.claude/plugins/token-budget-guard
-```
+## Configure
 
-Then add the hook to `~/.claude/settings.json`:
+Add to `~/.claude/settings.json`:
 
 ```json
-{
-  "hooks": {
-    "PreToolUse": [
-      { "hooks": [{ "type": "command", "command": "~/.claude/plugins/token-budget-guard/hooks/budget-guard.sh" }] }
-    ]
-  }
-}
+{ "env": { "BUDGET_LIMIT": "300", "BUDGET_WARN": "210" } }
 ```
 
-## How it works
+| Variable | Default | What |
+|----------|---------|------|
+| `BUDGET_LIMIT` | `200` | Max tool calls per session |
+| `BUDGET_WARN` | 70% of limit | When to start warning |
+| `LOOP_WINDOW` | `10` | How many recent calls to check |
+| `LOOP_THRESHOLD` | `8` | How many repeats = loop |
 
-The guard runs as a PreToolUse hook on **every** tool call (Bash, Edit, Write, Read, Glob, Grep, Agent, etc.).
+## Commands
 
-```
-Tool call → budget-guard.sh
-              ├── CHECK 1: Hard limit exceeded?     → BLOCK (exit 2)
-              ├── CHECK 2: Loop detected?            → BLOCK (exit 2)
-              ├── CHECK 3: Warning threshold?        → WARN  (exit 0 + context)
-              └── All clear                          → ALLOW (exit 0)
-```
-
-### Three checks
-
-| Check | What | Default | Action |
-|-------|------|---------|--------|
-| Hard limit | Total tool calls per session | 200 | Blocks the tool call |
-| Loop detection | Same tool N times in last M calls | 8 of 10 | Blocks the tool call |
-| Warning | Approaching the limit | 70% (140) | Injects warning into context |
-
-### Loop detection
-
-Uses a sliding window of the last 10 tool names. If any single tool appears 8+ times, it's flagged as a loop. Catches:
-
-- Reading the same file repeatedly (compaction loops)
-- Bash retrying the same failing command
-- Explore agents re-searching endlessly
-
-## Configuration
-
-Set via environment variables in `.claude/settings.json`:
-
-```json
-{
-  "env": {
-    "BUDGET_LIMIT": "200",
-    "BUDGET_WARN": "140",
-    "LOOP_WINDOW": "10",
-    "LOOP_THRESHOLD": "8"
-  }
-}
-```
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BUDGET_LIMIT` | `200` | Hard stop — max tool calls per session |
-| `BUDGET_WARN` | `140` (70% of limit) | Warning threshold — injects context |
-| `LOOP_WINDOW` | `10` | Sliding window size for loop detection |
-| `LOOP_THRESHOLD` | `8` | Max same-tool calls in window before block |
+| Command | What |
+|---------|------|
+| `/token-budget-guard:status` | Call count, remaining budget, loop risk |
+| `/token-budget-guard:reset` | Reset counter (escape hatch) |
+| `/token-budget-guard:help` | Quick reference |
 
 ## Uninstall
 
@@ -94,38 +52,11 @@ Set via environment variables in `.claude/settings.json`:
 ~/.claude/plugins/token-budget-guard/uninstall.sh
 ```
 
-Or from inside Claude Code: `/token-budget-guard:uninstall`
+## Run tests
 
-## Skills
-
-| Skill | Description |
-|-------|-------------|
-| `/token-budget-guard:help` | Quick reference — checks, config, skills |
-| `/token-budget-guard:status` | Show call count, remaining budget, top tools, loop risk |
-| `/token-budget-guard:reset` | Reset counter (escape hatch for intentional long sessions) |
-| `/token-budget-guard:install` | Guided install into Claude Code settings |
-| `/token-budget-guard:uninstall` | Remove hook and clean up |
-
-## State
-
-State is stored per-session at `/tmp/claude-budget-guard-{session_id}.json`:
-
-```json
-{
-  "count": 42,
-  "limit": 200,
-  "warn_at": 140,
-  "history": ["Bash", "Edit", "Read", "Read"],
-  "started": "2026-02-28T15:00:00Z"
-}
+```bash
+bats tests/
 ```
-
-State files are in `/tmp` and cleaned up on reboot. No persistent storage needed.
-
-## Requirements
-
-- bash 4+
-- [jq](https://jqlang.github.io/jq/) (`brew install jq` / `apt install jq`)
 
 ## License
 
