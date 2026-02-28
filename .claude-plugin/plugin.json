@@ -1,0 +1,10 @@
+{
+  "name": "token-budget-guard",
+  "version": "1.0.0",
+  "description": "Deterministic tool call budgets, loop detection, and circuit breaking for Claude Code",
+  "author": { "name": "jadecli" },
+  "repository": "https://github.com/jadecli/token-budget-guard",
+  "license": "MIT",
+  "hooks": "./hooks/hooks.json",
+  "skills": "./skills/"
+}
