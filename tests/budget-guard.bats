@@ -23,11 +23,28 @@ seed_state() { echo "$2" > "$(state_file "$1")"; }
 
 # Invoke the guard with optional env overrides.
 # Usage: guard SESSION_ID TOOL_NAME [ENV_VAR=val ...]
+# No tool_input -> history stores just the tool name (no fingerprint suffix).
 guard() {
   local sid="$1" tool="$2"
   shift 2
   local input
   input="$(jq -n --arg sid "$sid" --arg tool "$tool" '{session_id: $sid, tool_name: $tool}')"
+  if [[ $# -gt 0 ]]; then
+    run --separate-stderr env "$@" bash "$GUARD" <<< "$input"
+  else
+    run --separate-stderr bash "$GUARD" <<< "$input"
+  fi
+}
+
+# Invoke the guard with tool_input (as a JSON object) for fingerprint tests.
+# Usage: guard_with_input SESSION_ID TOOL_NAME TOOL_INPUT_JSON [ENV_VAR=val ...]
+# TOOL_INPUT_JSON is raw JSON, e.g. '{"command":"ls"}' or '{"file_path":"/tmp/a.txt"}'
+guard_with_input() {
+  local sid="$1" tool="$2" tool_input="$3"
+  shift 3
+  local input
+  input="$(jq -n --arg sid "$sid" --arg tool "$tool" --argjson ti "$tool_input" \
+    '{session_id: $sid, tool_name: $tool, tool_input: $ti}')"
   if [[ $# -gt 0 ]]; then
     run --separate-stderr env "$@" bash "$GUARD" <<< "$input"
   else
@@ -105,8 +122,27 @@ teardown() {
   [[ "$(read_state "$TEST_SID" '.limit')" -eq 200 ]]
   [[ "$(read_state "$TEST_SID" '.warn_at')" -eq 140 ]]
   [[ "$(read_state "$TEST_SID" '.history | length')" -eq 1 ]]
+  # Without tool_input, fingerprint is just the tool name
   [[ "$(read_state "$TEST_SID" '.history[0]')" == "Bash" ]]
   [[ -n "$(read_state "$TEST_SID" '.started')" ]]
+}
+
+@test "C1b: first call with tool_input stores human-readable fingerprint" {
+  guard_with_input "$TEST_SID" "Bash" '{"command":"ls -la"}'
+  [[ "$(read_state "$TEST_SID" '.count')" -eq 1 ]]
+  [[ "$(read_state "$TEST_SID" '.history | length')" -eq 1 ]]
+  # With tool_input, history stores "Bash:ls -la"
+  [[ "$(read_state "$TEST_SID" '.history[0]')" == "Bash:ls -la" ]]
+}
+
+@test "C1c: Read tool stores file_path in fingerprint" {
+  guard_with_input "$TEST_SID" "Read" '{"file_path":"/tmp/test.txt"}'
+  [[ "$(read_state "$TEST_SID" '.history[0]')" == "Read:/tmp/test.txt" ]]
+}
+
+@test "C1d: Grep tool stores pattern in fingerprint" {
+  guard_with_input "$TEST_SID" "Grep" '{"pattern":"TODO"}'
+  [[ "$(read_state "$TEST_SID" '.history[0]')" == "Grep:TODO" ]]
 }
 
 @test "C2: BUDGET_LIMIT overrides default limit" {
@@ -141,13 +177,40 @@ teardown() {
   [[ "$(read_state "$TEST_SID" '.count')" -eq 3 ]]
 }
 
-@test "D2: history records each tool name in order" {
+@test "D2: history records each tool name in order (no tool_input)" {
   guard "$TEST_SID" "Bash"
   guard "$TEST_SID" "Edit"
   guard "$TEST_SID" "Read"
   [[ "$(read_state "$TEST_SID" '.history[0]')" == "Bash" ]]
   [[ "$(read_state "$TEST_SID" '.history[1]')" == "Edit" ]]
   [[ "$(read_state "$TEST_SID" '.history[2]')" == "Read" ]]
+}
+
+@test "D2b: history records fingerprints when tool_input provided" {
+  guard_with_input "$TEST_SID" "Bash" '{"command":"ls"}'
+  guard_with_input "$TEST_SID" "Read" '{"file_path":"/tmp/a.txt"}'
+  [[ "$(read_state "$TEST_SID" '.history[0]')" == "Bash:ls" ]]
+  [[ "$(read_state "$TEST_SID" '.history[1]')" == "Read:/tmp/a.txt" ]]
+}
+
+@test "D2c: same tool with different inputs produces different fingerprints" {
+  guard_with_input "$TEST_SID" "Bash" '{"command":"ls"}'
+  guard_with_input "$TEST_SID" "Bash" '{"command":"pwd"}'
+  local fp0 fp1
+  fp0="$(read_state "$TEST_SID" '.history[0]')"
+  fp1="$(read_state "$TEST_SID" '.history[1]')"
+  [[ "$fp0" == "Bash:ls" ]]
+  [[ "$fp1" == "Bash:pwd" ]]
+  [[ "$fp0" != "$fp1" ]]
+}
+
+@test "D2d: same tool with same input produces identical fingerprints" {
+  guard_with_input "$TEST_SID" "Bash" '{"command":"ls"}'
+  guard_with_input "$TEST_SID" "Bash" '{"command":"ls"}'
+  local fp0 fp1
+  fp0="$(read_state "$TEST_SID" '.history[0]')"
+  fp1="$(read_state "$TEST_SID" '.history[1]')"
+  [[ "$fp0" == "$fp1" ]]
 }
 
 @test "D3: history trimmed to LOOP_WINDOW size" {
@@ -171,7 +234,6 @@ teardown() {
 # ══════════════════════════════════════════════════════════════════════════════
 
 @test "E1: call at exactly the limit is allowed" {
-  # count=199 → next call makes 200. 200 > 200 is false → allowed.
   seed_state "$TEST_SID" '{"count":199,"limit":200,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ "$status" -eq 0 ]]
@@ -179,7 +241,6 @@ teardown() {
 }
 
 @test "E2: call exceeding the limit exits 2" {
-  # count=200 → next call makes 201. 201 > 200 → blocked.
   seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ "$status" -eq 2 ]]
@@ -206,9 +267,9 @@ teardown() {
 }
 
 @test "E6: hard limit fires before loop detection when both conditions met" {
-  # count=200 (will exceed) AND history is all "Bash" (would loop).
-  # Hard limit check comes first → message says BUDGET EXCEEDED, not LOOP DETECTED.
-  seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Bash","Bash","Bash","Bash","Bash","Bash"],"started":"2026-01-01T00:00:00Z"}'
+  # count=200 (will exceed) AND history is all identical (would loop).
+  # Hard limit check comes first -> message says BUDGET EXCEEDED, not LOOP DETECTED.
+  seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":999,"history":["Bash:ls","Bash:ls","Bash:ls","Bash:ls","Bash:ls","Bash:ls","Bash:ls","Bash:ls","Bash:ls","Bash:ls"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ "$status" -eq 2 ]]
   [[ "$stderr" == *"BUDGET EXCEEDED"* ]]
@@ -216,39 +277,51 @@ teardown() {
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# F. Loop Detection — sliding window analysis
+# F. Loop Detection — exact fingerprint matching (CHECK 2a)
 # ══════════════════════════════════════════════════════════════════════════════
 
-@test "F1: below threshold is allowed (7 of same tool in window of 10)" {
-  # 6 Bash + 3 Edit in history, next call is Bash → 7 Bash in window. Below 8 threshold.
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Bash","Bash","Edit","Edit","Edit"],"started":"2026-01-01T00:00:00Z"}'
-  guard "$TEST_SID" "Bash"
+@test "F1: below threshold is allowed (4 identical fingerprints in window, threshold 5)" {
+  # 4 identical fingerprints + varied filler, next call is different -> 4 < 5
+  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash:ls","Bash:ls","Bash:ls","Bash:ls","Edit","Read","Glob","Write","Grep"],"started":"2026-01-01T00:00:00Z"}'
+  guard "$TEST_SID" "Edit" LOOP_THRESHOLD=5
   [[ "$status" -eq 0 ]]
 }
 
-@test "F2: at threshold triggers loop block (8 of same tool in window of 10)" {
-  # 7 Bash + 2 Edit in history, next call is Bash → window trims to 10, has 8 Bash.
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Bash","Bash","Bash","Edit","Edit"],"started":"2026-01-01T00:00:00Z"}'
-  guard "$TEST_SID" "Bash"
+@test "F2: different fingerprint for same tool does not trigger loop" {
+  # 4 "Bash:ls" + 5 varied. Next call is Bash with different command -> different fingerprint.
+  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash:ls","Bash:ls","Bash:ls","Bash:ls","Edit","Read","Glob","Write","Grep"],"started":"2026-01-01T00:00:00Z"}'
+  guard_with_input "$TEST_SID" "Bash" '{"command":"pwd"}' LOOP_THRESHOLD=5
+  # "Bash:pwd" != "Bash:ls" -> no exact match loop
+  [[ "$status" -eq 0 ]]
+}
+
+@test "F2b: identical fingerprints at threshold triggers loop block" {
+  # 4 identical fingerprints + varied filler, add a 5th identical fingerprint.
+  # Without tool_input, fingerprint = just "Bash". Seed 4 "Bash" entries.
+  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Edit","Read","Glob","Write","Grep"],"started":"2026-01-01T00:00:00Z"}'
+  guard "$TEST_SID" "Bash" LOOP_THRESHOLD=5
+  # Window: [Bash*4, Edit, Read, Glob, Write, Grep, Bash] -> 5 "Bash" >= 5
   [[ "$status" -eq 2 ]]
   [[ "$stderr" == *"LOOP DETECTED"* ]]
 }
 
 @test "F3: loop message includes tool name and count" {
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Read","Read","Read","Read","Read","Read","Read","Edit","Edit"],"started":"2026-01-01T00:00:00Z"}'
-  guard "$TEST_SID" "Read"
+  # 4 Read + varied filler. Next Read -> 5 Read >= 5 -> block.
+  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Read","Read","Read","Read","Edit","Glob","Write","Grep","Bash"],"started":"2026-01-01T00:00:00Z"}'
+  guard "$TEST_SID" "Read" LOOP_THRESHOLD=5
   [[ "$stderr" == *"Read"* ]]
-  [[ "$stderr" == *"8 times"* ]]
+  [[ "$stderr" == *"5 times"* ]]
 }
 
 @test "F4: mixed tools below threshold are allowed" {
   seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Edit","Read","Bash","Edit","Read","Bash","Edit","Read"],"started":"2026-01-01T00:00:00Z"}'
-  guard "$TEST_SID" "Bash"
+  guard "$TEST_SID" "Bash" LOOP_THRESHOLD=5
+  # 4 Bash < 5 threshold
   [[ "$status" -eq 0 ]]
 }
 
 @test "F5: LOOP_THRESHOLD override is respected" {
-  # threshold=3, window has 2 Bash + 1 Edit, next is Bash → 3 Bash in window → block.
+  # threshold=3, window has 2 Bash + 1 Edit, next is Bash -> 3 Bash in window -> block.
   seed_state "$TEST_SID" '{"count":3,"limit":200,"warn_at":999,"history":["Bash","Bash","Edit"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash" LOOP_THRESHOLD=3 LOOP_WINDOW=4
   [[ "$status" -eq 2 ]]
@@ -256,29 +329,98 @@ teardown() {
 }
 
 @test "F6: LOOP_WINDOW override is respected" {
-  # Window=5 with threshold=4. History has 5 entries: 3 Bash + 2 Edit.
-  # Next call is Bash → window trims to last 5: [Bash, Bash, Edit, Edit, Bash] → 3 Bash. Below 4.
-  # But if we seed with 4 Bash in last 5 positions...
-  seed_state "$TEST_SID" '{"count":5,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Edit","Bash"],"started":"2026-01-01T00:00:00Z"}'
-  guard "$TEST_SID" "Bash" LOOP_THRESHOLD=4 LOOP_WINDOW=5
-  # Window after: [Bash, Bash, Edit, Bash, Bash] → 4 Bash ≥ 4 → block
+  # Window=5 with threshold=3. History: [Bash, Bash, Edit, Edit, Bash].
+  # Next call Bash -> window: [Bash, Edit, Edit, Bash, Bash] -> 3 Bash >= 3 -> block
+  seed_state "$TEST_SID" '{"count":5,"limit":200,"warn_at":999,"history":["Bash","Bash","Edit","Edit","Bash"],"started":"2026-01-01T00:00:00Z"}'
+  guard "$TEST_SID" "Bash" LOOP_THRESHOLD=3 LOOP_WINDOW=5
   [[ "$status" -eq 2 ]]
 }
 
 @test "F7: loop clears when window slides past repeated calls" {
-  # History: 7 Bash + 3 Edit. Next call is Edit.
-  # Window after: last 10 of [Bash*7, Edit*3, Edit] = [Bash*7, Edit*3, Edit][-10:] = [Bash*6, Edit*3, Edit] → 6 Bash < 8
-  seed_state "$TEST_SID" '{"count":10,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Bash","Bash","Bash","Edit","Edit","Edit"],"started":"2026-01-01T00:00:00Z"}'
-  guard "$TEST_SID" "Edit"
+  # 4 Bash + varied filler. Next call is something new.
+  seed_state "$TEST_SID" '{"count":10,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Edit","Read","Glob","Write","Grep","WebSearch"],"started":"2026-01-01T00:00:00Z"}'
+  guard "$TEST_SID" "Edit" LOOP_THRESHOLD=5
+  # Window: [Bash*3, Edit, Read, Glob, Write, Grep, WebSearch, Edit] -> 3 Bash < 5
   [[ "$status" -eq 0 ]]
 }
 
 @test "F8: state file is saved even when loop blocks" {
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Bash","Bash","Bash","Edit","Edit"],"started":"2026-01-01T00:00:00Z"}'
-  guard "$TEST_SID" "Bash"
+  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Edit","Read","Glob","Write","Grep"],"started":"2026-01-01T00:00:00Z"}'
+  guard "$TEST_SID" "Bash" LOOP_THRESHOLD=5
   [[ "$status" -eq 2 ]]
   [[ -f "$(state_file "$TEST_SID")" ]]
   [[ "$(read_state "$TEST_SID" '.count')" -eq 10 ]]
+}
+
+@test "F9: same tool with different inputs does NOT trigger exact loop" {
+  # 8 Bash calls with different commands — all unique fingerprints.
+  seed_state "$TEST_SID" '{"count":8,"limit":200,"warn_at":999,"history":["Bash:ls","Bash:pwd","Bash:date","Bash:whoami","Bash:uname","Bash:env","Bash:cat /tmp/a","Bash:cat /tmp/b"],"started":"2026-01-01T00:00:00Z"}'
+  guard_with_input "$TEST_SID" "Bash" '{"command":"echo hello"}' LOOP_THRESHOLD=5 TOOL_REPEAT_THRESHOLD=9
+  # No identical fingerprint >= 5 -> no loop block.
+  [[ "$status" -eq 0 ]]
+  [[ "$stderr" != *"LOOP DETECTED"* ]]
+}
+
+@test "F10: exact same fingerprint repeated hits threshold" {
+  # 5 identical fingerprints + varied filler -> block.
+  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Read:/tmp/test.txt","Read:/tmp/test.txt","Read:/tmp/test.txt","Read:/tmp/test.txt","Read:/tmp/test.txt","Edit","Glob","Write","Grep"],"started":"2026-01-01T00:00:00Z"}'
+  guard "$TEST_SID" "Bash" LOOP_THRESHOLD=5
+  # Window still has 5x "Read:/tmp/test.txt" -> block
+  [[ "$status" -eq 2 ]]
+  [[ "$stderr" == *"LOOP DETECTED"* ]]
+  [[ "$stderr" == *"Read"* ]]
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Fb. Tool Repeat Warning — same tool, varied inputs (CHECK 2b)
+# ══════════════════════════════════════════════════════════════════════════════
+
+@test "Fb1: tool repeat warning fires at TOOL_REPEAT_THRESHOLD" {
+  # 8 Bash calls with different commands in history. Next Bash -> 9 Bash tool names.
+  seed_state "$TEST_SID" '{"count":8,"limit":200,"warn_at":999,"history":["Bash:ls","Bash:pwd","Bash:date","Bash:whoami","Bash:uname","Bash:env","Bash:cat /tmp/a","Bash:cat /tmp/b"],"started":"2026-01-01T00:00:00Z"}'
+  guard_with_input "$TEST_SID" "Bash" '{"command":"echo hello"}' LOOP_THRESHOLD=5 TOOL_REPEAT_THRESHOLD=9
+  # 9 Bash tool names >= 9 -> warning (not block)
+  [[ "$status" -eq 0 ]]
+  echo "$output" | jq -e '.hookSpecificOutput.additionalContext' >/dev/null
+  local ctx
+  ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
+  [[ "$ctx" == *"TOOL REPEAT"* ]]
+  [[ "$ctx" == *"Bash"* ]]
+}
+
+@test "Fb2: tool repeat warning is not a hard block — exit 0" {
+  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash:a","Bash:b","Bash:c","Bash:d","Bash:e","Bash:f","Bash:g","Bash:h","Bash:i"],"started":"2026-01-01T00:00:00Z"}'
+  guard_with_input "$TEST_SID" "Bash" '{"command":"another"}' LOOP_THRESHOLD=5 TOOL_REPEAT_THRESHOLD=9
+  [[ "$status" -eq 0 ]]
+  [[ "$stderr" != *"LOOP DETECTED"* ]]
+}
+
+@test "Fb3: below TOOL_REPEAT_THRESHOLD produces no warning" {
+  # 7 Bash + 1 Edit in history. Next Bash -> 8 Bash < 9 threshold.
+  seed_state "$TEST_SID" '{"count":8,"limit":200,"warn_at":999,"history":["Bash:a","Bash:b","Bash:c","Bash:d","Bash:e","Bash:f","Bash:g","Edit"],"started":"2026-01-01T00:00:00Z"}'
+  guard_with_input "$TEST_SID" "Bash" '{"command":"something"}' LOOP_THRESHOLD=5 TOOL_REPEAT_THRESHOLD=9
+  [[ "$status" -eq 0 ]]
+  # No warning output
+  [[ -z "$output" ]]
+}
+
+@test "Fb4: TOOL_REPEAT_THRESHOLD override is respected" {
+  # threshold=3, 2 Bash + 1 Edit. Next Bash -> 3 Bash >= 3 -> warning.
+  seed_state "$TEST_SID" '{"count":3,"limit":200,"warn_at":999,"history":["Bash:aaa","Bash:bbb","Edit"],"started":"2026-01-01T00:00:00Z"}'
+  guard_with_input "$TEST_SID" "Bash" '{"command":"x"}' LOOP_THRESHOLD=5 TOOL_REPEAT_THRESHOLD=3 LOOP_WINDOW=4
+  [[ "$status" -eq 0 ]]
+  local ctx
+  ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
+  [[ "$ctx" == *"TOOL REPEAT"* ]]
+}
+
+@test "Fb5: exact loop takes precedence over tool repeat warning" {
+  # 5 identical fingerprints AND 9 same-tool fingerprints. Exact loop fires first.
+  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash:ls","Bash:ls","Bash:ls","Bash:ls","Bash:ls","Bash:pwd","Bash:date","Bash:whoami","Bash:env"],"started":"2026-01-01T00:00:00Z"}'
+  guard "$TEST_SID" "Edit" LOOP_THRESHOLD=5 TOOL_REPEAT_THRESHOLD=9
+  # After adding Edit: window has 5x "Bash:ls" -> loop fires (exit 2).
+  [[ "$status" -eq 2 ]]
+  [[ "$stderr" == *"LOOP DETECTED"* ]]
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -288,7 +430,7 @@ teardown() {
 @test "G1: below warning threshold produces no stdout" {
   seed_state "$TEST_SID" '{"count":138,"limit":200,"warn_at":140,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
-  # count=139 < warn_at=140 → no output
+  # count=139 < warn_at=140 -> no output
   [[ "$status" -eq 0 ]]
   [[ -z "$output" ]]
 }
@@ -329,8 +471,6 @@ teardown() {
 }
 
 @test "G6: hard limit takes precedence over warning when both apply" {
-  # count=200, warn_at=140. Next call: count=201 > limit=200 → hard limit fires.
-  # Warning check is never reached.
   seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":140,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ "$status" -eq 2 ]]
@@ -391,13 +531,9 @@ teardown() {
 }
 
 @test "I3: existing state file limit used — env var ignored mid-session" {
-  # State file says limit=100. Even with BUDGET_LIMIT=200 in env,
-  # the state file's limit is canonical.
   seed_state "$TEST_SID" '{"count":99,"limit":100,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash" BUDGET_LIMIT=200
-  # count=100, limit from state=100. 100 > 100 is false → allowed.
   [[ "$status" -eq 0 ]]
-  # Next call: count=101 > 100 → blocked.
   guard "$TEST_SID" "Bash" BUDGET_LIMIT=200
   [[ "$status" -eq 2 ]]
 }
@@ -420,10 +556,7 @@ teardown() {
   [[ "$status" -eq 2 ]]
 }
 
-@test "J3: LOOP_THRESHOLD=1 blocks on first call — any single tool triggers" {
-  # With threshold=1, ANY tool appearing ≥ 1 time in the window is a "loop".
-  # This is an extreme config. The first call itself triggers because after
-  # appending, history=["Bash"] and 1 >= 1 is true.
+@test "J3: LOOP_THRESHOLD=1 blocks on first call — any single identical call triggers" {
   seed_state "$TEST_SID" '{"count":0,"limit":200,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash" LOOP_THRESHOLD=1 LOOP_WINDOW=2
   [[ "$status" -eq 2 ]]
@@ -437,7 +570,59 @@ teardown() {
 }
 
 @test "J5: loop block message includes reset instructions" {
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Bash","Bash","Bash","Edit","Edit"],"started":"2026-01-01T00:00:00Z"}'
-  guard "$TEST_SID" "Bash"
+  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Edit","Read","Glob","Write","Grep"],"started":"2026-01-01T00:00:00Z"}'
+  guard "$TEST_SID" "Bash" LOOP_THRESHOLD=5
   [[ "$stderr" == *"/token-budget-guard:reset"* ]]
+}
+
+@test "J6: old-format history entries (no colon) work with tool-repeat check" {
+  # Backward compatibility: old state files have bare tool names like "Bash".
+  # The split(":")[0] in the tool-repeat check handles them correctly.
+  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Bash","Bash","Bash","Bash","Bash"],"started":"2026-01-01T00:00:00Z"}'
+  guard "$TEST_SID" "Edit" LOOP_THRESHOLD=5
+  # 9 "Bash" entries (no colon) -> exact loop: 9 >= 5 -> LOOP DETECTED
+  [[ "$status" -eq 2 ]]
+  [[ "$stderr" == *"LOOP DETECTED"* ]]
+}
+
+@test "J7: tool_input with empty string produces no fingerprint suffix" {
+  # Empty tool_input -> fingerprint is just the tool name
+  local input
+  input='{"session_id":"'"$TEST_SID"'","tool_name":"Bash","tool_input":{}}'
+  run --separate-stderr bash "$GUARD" <<< "$input"
+  [[ "$status" -eq 0 ]]
+  [[ "$(read_state "$TEST_SID" '.history[0]')" == "Bash" ]]
+}
+
+@test "J8: Bash command fingerprint is truncated at 80 chars" {
+  local long_cmd
+  long_cmd="$(printf 'a%.0s' {1..100})"  # 100-char string
+  guard_with_input "$TEST_SID" "Bash" "{\"command\":\"$long_cmd\"}"
+  local fp
+  fp="$(read_state "$TEST_SID" '.history[0]')"
+  # "Bash:" + 80 chars = 85 chars max
+  [[ ${#fp} -le 85 ]]
+  [[ "$fp" == Bash:* ]]
+}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# K. Reset Bypass — /token-budget-guard:reset can always execute
+# ══════════════════════════════════════════════════════════════════════════════
+
+@test "K1: reset command bypasses budget limit" {
+  seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  # Simulate the reset command that the skill would run
+  local input
+  input="$(jq -n --arg sid "$TEST_SID" '{session_id: $sid, tool_name: "Bash", tool_input: {command: "jq .count /tmp/claude-budget-guard-test.json"}}')"
+  run --separate-stderr bash "$GUARD" <<< "$input"
+  # Budget is exceeded (count=201 > 200) but reset commands are allowed
+  [[ "$status" -eq 0 ]]
+}
+
+@test "K2: reset bypass still increments the counter" {
+  seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  local input
+  input="$(jq -n --arg sid "$TEST_SID" '{session_id: $sid, tool_name: "Bash", tool_input: {command: "jq .count /tmp/claude-budget-guard-test.json"}}')"
+  run --separate-stderr bash "$GUARD" <<< "$input"
+  [[ "$(read_state "$TEST_SID" '.count')" -eq 201 ]]
 }

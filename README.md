@@ -42,41 +42,44 @@ You: "Fix the failing test"
 
 Claude: [tool call 1]   Read tests/auth.test.ts
 Claude: [tool call 2]   Bash npm test
-Claude: [tool call 3]   Read tests/auth.test.ts
-Claude: [tool call 4]   Read tests/auth.test.ts
-Claude: [tool call 5]   Read tests/auth.test.ts
-Claude: [tool call 6]   Read tests/auth.test.ts
-Claude: [tool call 7]   Read tests/auth.test.ts
-Claude: [tool call 8]   Read tests/auth.test.ts
+Claude: [tool call 3]   Read tests/auth.test.ts       ← same file, same input
+Claude: [tool call 4]   Read tests/auth.test.ts       ← identical again
+Claude: [tool call 5]   Read tests/auth.test.ts       ← identical again
                          ↑
-                         LOOP DETECTED: Read called 8 times in last 10 calls.
-                         Blocked to prevent token waste.
+                         LOOP DETECTED: Read called 5 times with identical input
+                         in last 10 calls. Blocked to prevent token waste.
 
 Claude: "I notice I'm stuck in a loop reading the same file.
          Let me try a different approach..."
 ```
 
-8 calls instead of 200. The guard caught the loop and Claude self-corrected.
+5 identical calls instead of 200. The guard caught the loop and Claude self-corrected.
+
+Reading 8 _different_ files? That's fine -- varied inputs are not a loop. The guard only blocks when the same tool is called with the exact same arguments repeatedly.
 
 ---
 
 ## How it works
 
-A single bash script runs before every tool call. Three checks, in order:
+A single bash script runs before every tool call. Four checks, in order:
 
 ```
 Tool call comes in
   │
-  ├─ 1. Over budget?        → BLOCK   "200/200 calls used. Session halted."
+  ├─ 1. Over budget?          → BLOCK   "200/200 calls used. Session halted."
   │
-  ├─ 2. Same tool looping?  → BLOCK   "Read called 8 times in last 10 calls."
+  ├─ 2a. Identical call loop? → BLOCK   "Read called 5x with identical input."
+  │                                       (same tool + same arguments = real loop)
   │
-  ├─ 3. Getting close?      → WARN    "140/200 calls used (70%). 60 remaining."
+  ├─ 2b. Same tool repeated?  → WARN    "Bash used 9x with varied inputs."
+  │                                       (same tool, different args = not a loop)
   │
-  └─ All clear              → ALLOW   (silent, zero overhead)
+  ├─ 3. Getting close?        → WARN    "140/200 calls used (70%). 60 remaining."
+  │
+  └─ All clear                → ALLOW   (silent, zero overhead)
 ```
 
-That's it. No tokens consumed. No API calls. Just a counter and a sliding window.
+Loop detection uses **fingerprints** -- human-readable signatures built from tool name + key input parameters (e.g. `Bash:git status`, `Read:/src/main.ts`). Reading 8 different files is fine. Reading the same file 5 times is a loop. No tokens consumed. No API calls. Just a counter and a sliding window.
 
 ---
 
@@ -116,7 +119,8 @@ Defaults work for most people. To customize, add to `~/.claude/settings.json`:
 | `BUDGET_LIMIT` | `200` | Max tool calls before hard stop |
 | `BUDGET_WARN` | 70% of limit | When to inject a warning |
 | `LOOP_WINDOW` | `10` | How many recent calls to watch |
-| `LOOP_THRESHOLD` | `8` | Repeated calls before blocking |
+| `LOOP_THRESHOLD` | `5` | Identical calls (same tool+input) before hard block |
+| `TOOL_REPEAT_THRESHOLD` | `9` | Same tool name (any input) before soft warning |
 
 ## Commands
 
@@ -135,7 +139,7 @@ Defaults work for most people. To customize, add to `~/.claude/settings.json`:
 ## Tests
 
 ```bash
-bats tests/    # 62 tests
+bats tests/    # 67 tests
 ```
 
 ## License
