@@ -18,13 +18,13 @@ Remaining:     {remaining}
 Warning at:    {warn_at}
 Session start: {started}
 
-Top tools:
-  {tool_name}: {count} calls
-  {tool_name}: {count} calls
+Recent fingerprints (most repeated first):
+  {fingerprint}: {count} calls
+  {fingerprint}: {count} calls
   ...
 
 Loop risk: {low|medium|high}
-  (based on most frequent tool in last {window} calls)
+  (based on most repeated fingerprint in window)
 ```
 
 Run this bash command to get the status:
@@ -39,8 +39,8 @@ for f in /tmp/claude-budget-guard-*.json; do
       remaining: (.limit - .count),
       warn_at: .warn_at,
       started: .started,
-      top_tools: ([.history[] | {tool: .}] | group_by(.tool) | map({tool: .[0].tool, count: length}) | sort_by(-.count) | .[0:5]),
-      loop_risk: (if ([.history[] | {tool: .}] | group_by(.tool) | map(length) | max // 0) >= 6 then "HIGH" elif ([.history[] | {tool: .}] | group_by(.tool) | map(length) | max // 0) >= 4 then "MEDIUM" else "LOW" end)
+      top_fingerprints: ([.history[] | {fp: .}] | group_by(.fp) | map({fingerprint: .[0].fp, count: length}) | sort_by(-.count) | .[0:5]),
+      loop_risk: (if ([.history[] | {fp: .}] | group_by(.fp) | map(length) | max // 0) >= 4 then "HIGH" elif ([.history[] | {fp: .}] | group_by(.fp) | map(length) | max // 0) >= 3 then "MEDIUM" else "LOW" end)
     }' "$f"
   fi
 done

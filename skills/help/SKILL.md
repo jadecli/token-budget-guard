@@ -14,9 +14,11 @@ Runs a PreToolUse hook on every tool call. Three checks, in order:
 
 | Check | Default | What happens |
 |-------|---------|-------------|
+| Reset bypass | Bash commands targeting state files | Always allowed (prevents deadlock) |
 | Hard limit | 200 calls | Blocks the tool call (exit 2) |
-| Loop detection | 8 of same tool in last 10 | Blocks the tool call (exit 2) |
-| Warning | At 70% of limit | Injects a warning into context |
+| Exact loop | 5 identical calls in last 10 | Blocks the tool call (exit 2) |
+| Tool repeat | 9 same-tool calls in last 10 | Injects a warning (non-blocking) |
+| Budget warning | At 70% of limit | Injects a warning into context |
 
 **Skills:**
 
@@ -35,7 +37,8 @@ Runs a PreToolUse hook on every tool call. Three checks, in order:
 | `BUDGET_LIMIT` | `200` | Max tool calls per session |
 | `BUDGET_WARN` | 70% of limit | Warning threshold |
 | `LOOP_WINDOW` | `10` | Sliding window size |
-| `LOOP_THRESHOLD` | `8` | Max same-tool calls in window |
+| `LOOP_THRESHOLD` | `5` | Identical fingerprints to trigger block |
+| `TOOL_REPEAT_THRESHOLD` | `9` | Same-tool calls to trigger warning |
 
 **Quick start:**
 ```
