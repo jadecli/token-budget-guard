@@ -30,7 +30,7 @@ Claude: [tool call 6]   Read tests/auth.test.ts       ← again
 Claude: [tool call 47]  Read tests/auth.test.ts       ← still going
 Claude: [tool call 48]  Bash npm test                  ← still failing
 ...
-Claude: [tool call 200] Read tests/auth.test.ts       ← you've mass-burned tokens
+Claude: [tool call 500] Read tests/auth.test.ts       ← you've mass-burned tokens
                                                          20 minutes wasted
                                                          nothing fixed
 ```
@@ -66,7 +66,7 @@ A single bash script runs before every tool call. Four checks, in order:
 ```
 Tool call comes in
   │
-  ├─ 1. Over budget?          → BLOCK   "200/200 calls used. Session halted."
+  ├─ 1. Over budget?          → BLOCK   "500/500 calls used. Session halted."
   │
   ├─ 2a. Identical call loop? → BLOCK   "Read called 5x with identical input."
   │                                       (same tool + same arguments = real loop)
@@ -74,7 +74,7 @@ Tool call comes in
   ├─ 2b. Same tool repeated?  → WARN    "Bash used 9x with varied inputs."
   │                                       (same tool, different args = not a loop)
   │
-  ├─ 3. Getting close?        → WARN    "140/200 calls used (70%). 60 remaining."
+  ├─ 3. Getting close?        → WARN    "350/500 calls used (70%). 150 remaining."
   │
   └─ All clear                → ALLOW   (silent, zero overhead)
 ```
@@ -111,12 +111,14 @@ Requires: bash 4+, [jq](https://jqlang.github.io/jq/) (`brew install jq`)
 Defaults work for most people. To customize, add to `~/.claude/settings.json`:
 
 ```json
-{ "env": { "BUDGET_LIMIT": "300" } }
+{ "env": { "BUDGET_LIMIT": "800" } }
 ```
+
+Changes take effect immediately -- no need to reset or restart. The env var always overrides any value stored in the state file.
 
 | Variable | Default | What |
 |----------|---------|------|
-| `BUDGET_LIMIT` | `200` | Max tool calls before hard stop |
+| `BUDGET_LIMIT` | `500` | Max tool calls before hard stop |
 | `BUDGET_WARN` | 70% of limit | When to inject a warning |
 | `LOOP_WINDOW` | `10` | How many recent calls to watch |
 | `LOOP_THRESHOLD` | `5` | Identical calls (same tool+input) before hard block |
@@ -139,7 +141,7 @@ Defaults work for most people. To customize, add to `~/.claude/settings.json`:
 ## Tests
 
 ```bash
-bats tests/    # 67 tests
+bats tests/    # 86 tests
 ```
 
 ## License
