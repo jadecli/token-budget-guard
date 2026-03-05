@@ -57,7 +57,7 @@ if jq -e '.hooks.PreToolUse[] | select(.hooks[].command | contains("budget-guard
   echo ""
   echo "Installed! Budget guard will activate on your next Claude Code session."
   echo ""
-  echo "  Defaults: 200 call limit, warning at 140, loop detection 8/10"
+  echo "  Defaults: 500 call limit, warning at 350, loop detection 5/10"
   echo "  Status:   /token-budget-guard:status"
   echo "  Reset:    /token-budget-guard:reset"
   echo "  Help:     /token-budget-guard:help"
