@@ -112,8 +112,8 @@ teardown() {
 @test "C1: first call initializes state with correct defaults" {
   guard "$TEST_SID" "Bash"
   [[ "$(read_state "$TEST_SID" '.count')" -eq 1 ]]
-  [[ "$(read_state "$TEST_SID" '.limit')" -eq 200 ]]
-  [[ "$(read_state "$TEST_SID" '.warn_at')" -eq 140 ]]
+  [[ "$(read_state "$TEST_SID" '.limit')" -eq 500 ]]
+  [[ "$(read_state "$TEST_SID" '.warn_at')" -eq 350 ]]
   [[ "$(read_state "$TEST_SID" '.history | length')" -eq 1 ]]
   [[ "$(read_state "$TEST_SID" '.history[0]')" == "Bash" ]]
   [[ -n "$(read_state "$TEST_SID" '.started')" ]]
@@ -211,7 +211,7 @@ teardown() {
 }
 
 @test "D3: history trimmed to LOOP_WINDOW size" {
-  seed_state "$TEST_SID" '{"count":4,"limit":200,"warn_at":140,"history":["A","B","C","D"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":4,"limit":500,"warn_at":350,"history":["A","B","C","D"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "E" LOOP_WINDOW=3
   [[ "$(read_state "$TEST_SID" '.history | length')" -eq 3 ]]
   [[ "$(read_state "$TEST_SID" '.history[0]')" == "C" ]]
@@ -219,7 +219,7 @@ teardown() {
 }
 
 @test "D4: count keeps growing even after history is trimmed" {
-  seed_state "$TEST_SID" '{"count":4,"limit":200,"warn_at":140,"history":["A","B","C","D"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":4,"limit":500,"warn_at":350,"history":["A","B","C","D"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "E" LOOP_WINDOW=3
   [[ "$(read_state "$TEST_SID" '.count')" -eq 5 ]]
   [[ "$(read_state "$TEST_SID" '.history | length')" -eq 3 ]]
@@ -228,40 +228,40 @@ teardown() {
 # E. Hard Limit
 
 @test "E1: call at exactly the limit is allowed" {
-  seed_state "$TEST_SID" '{"count":199,"limit":200,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":499,"limit":500,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ "$status" -eq 0 ]]
-  [[ "$(read_state "$TEST_SID" '.count')" -eq 200 ]]
+  [[ "$(read_state "$TEST_SID" '.count')" -eq 500 ]]
 }
 
 @test "E2: call exceeding the limit exits 2" {
-  seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":500,"limit":500,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ "$status" -eq 2 ]]
   [[ "$stderr" == *"BUDGET EXCEEDED"* ]]
 }
 
 @test "E3: exceeded message includes count and limit" {
-  seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":500,"limit":500,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
-  [[ "$stderr" == *"201/200"* ]]
+  [[ "$stderr" == *"501/500"* ]]
 }
 
 @test "E4: state file is saved even when blocked" {
-  seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":500,"limit":500,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
-  [[ "$(read_state "$TEST_SID" '.count')" -eq 201 ]]
+  [[ "$(read_state "$TEST_SID" '.count')" -eq 501 ]]
 }
 
 @test "E5: custom BUDGET_LIMIT=5 blocks at call 6" {
   seed_state "$TEST_SID" '{"count":5,"limit":5,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
-  guard "$TEST_SID" "Bash"
+  guard "$TEST_SID" "Bash" BUDGET_LIMIT=5 BUDGET_WARN=999
   [[ "$status" -eq 2 ]]
   [[ "$stderr" == *"BUDGET EXCEEDED"* ]]
 }
 
 @test "E6: hard limit fires before loop detection when both conditions met" {
-  seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Bash","Bash","Bash","Bash","Bash","Bash"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":500,"limit":500,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Bash","Bash","Bash","Bash","Bash","Bash"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ "$status" -eq 2 ]]
   [[ "$stderr" == *"BUDGET EXCEEDED"* ]]
@@ -272,13 +272,13 @@ teardown() {
 
 @test "F1: below threshold is allowed (4 identical fingerprints)" {
   # 4 Bash + 3 Edit + 2 Grep. Add Grep -> Bash=4, Edit=3, Grep=3. All < 5.
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Edit","Edit","Edit","Grep","Grep"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":9,"limit":500,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Edit","Edit","Edit","Grep","Grep"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Grep"
   [[ "$status" -eq 0 ]]
 }
 
 @test "F2: at threshold triggers loop block (5 identical fingerprints)" {
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Edit","Edit","Edit","Edit","Edit"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":9,"limit":500,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Edit","Edit","Edit","Edit","Edit"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ "$status" -eq 2 ]]
   [[ "$stderr" == *"LOOP DETECTED"* ]]
@@ -286,27 +286,27 @@ teardown() {
 
 @test "F3: loop message includes tool name and count" {
   # 4 Read + 3 Edit + 2 Grep. Add Read -> 5 Read >= 5. Edit=3, Grep=2. Only Read triggers.
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Read","Read","Read","Read","Edit","Edit","Edit","Grep","Grep"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":9,"limit":500,"warn_at":999,"history":["Read","Read","Read","Read","Edit","Edit","Edit","Grep","Grep"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Read"
   [[ "$stderr" == *"Read"* ]]
   [[ "$stderr" == *"5 times"* ]]
 }
 
 @test "F4: mixed tools below threshold are allowed" {
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Edit","Read","Bash","Edit","Read","Bash","Edit","Read"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":9,"limit":500,"warn_at":999,"history":["Bash","Edit","Read","Bash","Edit","Read","Bash","Edit","Read"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ "$status" -eq 0 ]]
 }
 
 @test "F5: LOOP_THRESHOLD override is respected" {
-  seed_state "$TEST_SID" '{"count":3,"limit":200,"warn_at":999,"history":["Bash","Bash","Edit"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":3,"limit":500,"warn_at":999,"history":["Bash","Bash","Edit"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash" LOOP_THRESHOLD=3 LOOP_WINDOW=4
   [[ "$status" -eq 2 ]]
   [[ "$stderr" == *"LOOP DETECTED"* ]]
 }
 
 @test "F6: LOOP_WINDOW override is respected" {
-  seed_state "$TEST_SID" '{"count":5,"limit":200,"warn_at":999,"history":["Bash","Bash","Edit","Edit","Bash"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":5,"limit":500,"warn_at":999,"history":["Bash","Bash","Edit","Edit","Bash"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash" LOOP_THRESHOLD=3 LOOP_WINDOW=5
   [[ "$status" -eq 2 ]]
 }
@@ -314,13 +314,13 @@ teardown() {
 @test "F7: loop clears when window slides past repeated calls" {
   # 4 Bash + 3 Edit + 3 Grep. Add Grep -> trim to 10: [Bash x3, Edit x3, Grep x3, Grep].
   # Bash=3, Edit=3, Grep=4. All < 5.
-  seed_state "$TEST_SID" '{"count":10,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Edit","Edit","Edit","Grep","Grep","Grep"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":10,"limit":500,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Edit","Edit","Edit","Grep","Grep","Grep"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Grep"
   [[ "$status" -eq 0 ]]
 }
 
 @test "F8: state file is saved even when loop blocks" {
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Edit","Edit","Edit","Edit","Edit"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":9,"limit":500,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Edit","Edit","Edit","Edit","Edit"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ "$status" -eq 2 ]]
   [[ -f "$(state_file "$TEST_SID")" ]]
@@ -328,7 +328,7 @@ teardown() {
 }
 
 @test "F9: same tool with different inputs does NOT trigger exact loop" {
-  seed_state "$TEST_SID" '{"count":8,"limit":200,"warn_at":999,"history":["Bash:git status","Bash:git diff","Bash:git log","Bash:npm test","Bash:npm run build","Bash:vercel deploy","Bash:gh pr list","Bash:ls"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":8,"limit":500,"warn_at":999,"history":["Bash:git status","Bash:git diff","Bash:git log","Bash:npm test","Bash:npm run build","Bash:vercel deploy","Bash:gh pr list","Bash:ls"],"started":"2026-01-01T00:00:00Z"}'
   guard_with_input "$TEST_SID" "Bash" '{"command":"unique_cmd"}'
   [[ "$status" -eq 0 ]]
   [[ "$stderr" != *"LOOP DETECTED"* ]]
@@ -336,7 +336,7 @@ teardown() {
 
 @test "F10: exact same fingerprint repeated hits threshold" {
   # 5x "Read:/stuck.ts" + 2 Edit + 2 Grep. Add Grep -> Read=5 >= 5. Edit=2, Grep=3. Only Read triggers.
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Read:/stuck.ts","Read:/stuck.ts","Read:/stuck.ts","Read:/stuck.ts","Read:/stuck.ts","Edit","Edit","Grep","Grep"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":9,"limit":500,"warn_at":999,"history":["Read:/stuck.ts","Read:/stuck.ts","Read:/stuck.ts","Read:/stuck.ts","Read:/stuck.ts","Edit","Edit","Grep","Grep"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Grep"
   [[ "$status" -eq 2 ]]
   [[ "$stderr" == *"LOOP DETECTED"* ]]
@@ -344,7 +344,7 @@ teardown() {
 }
 
 @test "F11: readable Bash fingerprints in loop message" {
-  seed_state "$TEST_SID" '{"count":4,"limit":200,"warn_at":999,"history":["Bash:npm test","Bash:npm test","Bash:npm test","Bash:npm test"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":4,"limit":500,"warn_at":999,"history":["Bash:npm test","Bash:npm test","Bash:npm test","Bash:npm test"],"started":"2026-01-01T00:00:00Z"}'
   guard_with_input "$TEST_SID" "Bash" '{"command":"npm test"}'
   [[ "$status" -eq 2 ]]
   [[ "$stderr" == *"npm test"* ]]
@@ -353,7 +353,7 @@ teardown() {
 # Fb. Tool Repeat Warning -- same tool, varied inputs (CHECK 2b)
 
 @test "Fb1: tool repeat warning fires at TOOL_REPEAT_THRESHOLD (default 9)" {
-  seed_state "$TEST_SID" '{"count":8,"limit":200,"warn_at":999,"history":["Bash:git status","Bash:git diff","Bash:git log","Bash:npm test","Bash:npm build","Bash:vercel deploy","Bash:gh pr list","Bash:ls"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":8,"limit":500,"warn_at":999,"history":["Bash:git status","Bash:git diff","Bash:git log","Bash:npm test","Bash:npm build","Bash:vercel deploy","Bash:gh pr list","Bash:ls"],"started":"2026-01-01T00:00:00Z"}'
   guard_with_input "$TEST_SID" "Bash" '{"command":"another_unique"}'
   [[ "$status" -eq 0 ]]
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext' >/dev/null
@@ -364,21 +364,21 @@ teardown() {
 }
 
 @test "Fb2: tool repeat warning is not a hard block" {
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash:a","Bash:b","Bash:c","Bash:d","Bash:e","Bash:f","Bash:g","Bash:h","Bash:i"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":9,"limit":500,"warn_at":999,"history":["Bash:a","Bash:b","Bash:c","Bash:d","Bash:e","Bash:f","Bash:g","Bash:h","Bash:i"],"started":"2026-01-01T00:00:00Z"}'
   guard_with_input "$TEST_SID" "Bash" '{"command":"yet_another"}'
   [[ "$status" -eq 0 ]]
   [[ "$stderr" != *"LOOP DETECTED"* ]]
 }
 
 @test "Fb3: below TOOL_REPEAT_THRESHOLD produces no warning" {
-  seed_state "$TEST_SID" '{"count":8,"limit":200,"warn_at":999,"history":["Bash:a","Bash:b","Bash:c","Bash:d","Bash:e","Bash:f","Bash:g","Edit"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":8,"limit":500,"warn_at":999,"history":["Bash:a","Bash:b","Bash:c","Bash:d","Bash:e","Bash:f","Bash:g","Edit"],"started":"2026-01-01T00:00:00Z"}'
   guard_with_input "$TEST_SID" "Bash" '{"command":"something"}'
   [[ "$status" -eq 0 ]]
   [[ -z "$output" ]]
 }
 
 @test "Fb4: TOOL_REPEAT_THRESHOLD override is respected" {
-  seed_state "$TEST_SID" '{"count":3,"limit":200,"warn_at":999,"history":["Bash:aaa","Bash:bbb","Edit"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":3,"limit":500,"warn_at":999,"history":["Bash:aaa","Bash:bbb","Edit"],"started":"2026-01-01T00:00:00Z"}'
   guard_with_input "$TEST_SID" "Bash" '{"command":"x"}' TOOL_REPEAT_THRESHOLD=3 LOOP_WINDOW=4
   [[ "$status" -eq 0 ]]
   local ctx
@@ -387,14 +387,14 @@ teardown() {
 }
 
 @test "Fb5: exact loop takes precedence over tool repeat warning" {
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash:abc","Bash:abc","Bash:abc","Bash:abc","Bash:abc","Bash:def","Bash:ghi","Bash:jkl","Bash:mno"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":9,"limit":500,"warn_at":999,"history":["Bash:abc","Bash:abc","Bash:abc","Bash:abc","Bash:abc","Bash:def","Bash:ghi","Bash:jkl","Bash:mno"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Edit"
   [[ "$status" -eq 2 ]]
   [[ "$stderr" == *"LOOP DETECTED"* ]]
 }
 
 @test "Fb6: budget warning combined with tool repeat warning" {
-  seed_state "$TEST_SID" '{"count":139,"limit":200,"warn_at":140,"history":["Bash:a","Bash:b","Bash:c","Bash:d","Bash:e","Bash:f","Bash:g","Bash:h","Bash:i"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":349,"limit":500,"warn_at":350,"history":["Bash:a","Bash:b","Bash:c","Bash:d","Bash:e","Bash:f","Bash:g","Bash:h","Bash:i"],"started":"2026-01-01T00:00:00Z"}'
   guard_with_input "$TEST_SID" "Bash" '{"command":"j"}'
   [[ "$status" -eq 0 ]]
   local ctx
@@ -406,21 +406,22 @@ teardown() {
 # G. Warning Threshold
 
 @test "G1: below warning threshold produces no stdout" {
-  seed_state "$TEST_SID" '{"count":138,"limit":200,"warn_at":140,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":348,"limit":500,"warn_at":350,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
+  # count=349 < warn_at=350 → no output
   [[ "$status" -eq 0 ]]
   [[ -z "$output" ]]
 }
 
 @test "G2: at warning threshold emits JSON on stdout" {
-  seed_state "$TEST_SID" '{"count":139,"limit":200,"warn_at":140,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":349,"limit":500,"warn_at":350,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ "$status" -eq 0 ]]
   echo "$output" | jq -e '.hookSpecificOutput.additionalContext' >/dev/null
 }
 
 @test "G3: warning JSON has correct structure" {
-  seed_state "$TEST_SID" '{"count":139,"limit":200,"warn_at":140,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":349,"limit":500,"warn_at":350,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   local ctx
   ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
@@ -428,17 +429,17 @@ teardown() {
 }
 
 @test "G4: warning message includes count, limit, percent, remaining" {
-  seed_state "$TEST_SID" '{"count":139,"limit":200,"warn_at":140,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":349,"limit":500,"warn_at":350,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   local ctx
   ctx="$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext')"
-  [[ "$ctx" == *"140/200"* ]]
+  [[ "$ctx" == *"350/500"* ]]
   [[ "$ctx" == *"70%"* ]]
-  [[ "$ctx" == *"60 calls remaining"* ]]
+  [[ "$ctx" == *"150 calls remaining"* ]]
 }
 
 @test "G5: warning fires on every call after threshold" {
-  seed_state "$TEST_SID" '{"count":139,"limit":200,"warn_at":140,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":349,"limit":500,"warn_at":350,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ -n "$output" ]]
   guard "$TEST_SID" "Edit"
@@ -448,7 +449,7 @@ teardown() {
 }
 
 @test "G6: hard limit takes precedence over warning when both apply" {
-  seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":140,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":500,"limit":500,"warn_at":350,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ "$status" -eq 2 ]]
   [[ "$stderr" == *"BUDGET EXCEEDED"* ]]
@@ -456,21 +457,21 @@ teardown() {
 }
 
 @test "G7: state file reflects count after warning" {
-  seed_state "$TEST_SID" '{"count":139,"limit":200,"warn_at":140,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":349,"limit":500,"warn_at":350,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
-  [[ "$(read_state "$TEST_SID" '.count')" -eq 140 ]]
+  [[ "$(read_state "$TEST_SID" '.count')" -eq 350 ]]
 }
 
 # H. Configuration
 
-@test "H1: default BUDGET_LIMIT is 200" {
+@test "H1: default BUDGET_LIMIT is 500" {
   guard "$TEST_SID" "Bash"
-  [[ "$(read_state "$TEST_SID" '.limit')" -eq 200 ]]
+  [[ "$(read_state "$TEST_SID" '.limit')" -eq 500 ]]
 }
 
 @test "H2: default BUDGET_WARN is 70% of BUDGET_LIMIT" {
   guard "$TEST_SID" "Bash"
-  [[ "$(read_state "$TEST_SID" '.warn_at')" -eq 140 ]]
+  [[ "$(read_state "$TEST_SID" '.warn_at')" -eq 350 ]]
 }
 
 @test "H3: BUDGET_WARN derived from custom BUDGET_LIMIT" {
@@ -498,17 +499,21 @@ teardown() {
 }
 
 @test "I2: pre-seeded count is respected and incremented" {
-  seed_state "$TEST_SID" '{"count":50,"limit":200,"warn_at":140,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":50,"limit":500,"warn_at":350,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ "$(read_state "$TEST_SID" '.count')" -eq 51 ]]
 }
 
-@test "I3: existing state file limit used -- env var ignored mid-session" {
+@test "I3: env var overrides state file limit mid-session" {
+  # State says limit=100, but BUDGET_LIMIT=200 env var wins.
+  # count=99 → call makes 100. 100 > 200 is false → allowed.
   seed_state "$TEST_SID" '{"count":99,"limit":100,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash" BUDGET_LIMIT=200
   [[ "$status" -eq 0 ]]
+  [[ "$(read_state "$TEST_SID" '.limit')" -eq 200 ]]
+  # count=100. 101 > 200 is false → still allowed (was blocked at 100 before).
   guard "$TEST_SID" "Bash" BUDGET_LIMIT=200
-  [[ "$status" -eq 2 ]]
+  [[ "$status" -eq 0 ]]
 }
 
 # J. Edge Cases
@@ -520,34 +525,33 @@ teardown() {
 }
 
 @test "J2: BUDGET_LIMIT=1 blocks on second call" {
-  seed_state "$TEST_SID" '{"count":0,"limit":1,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
-  guard "$TEST_SID" "Bash"
+  guard "$TEST_SID" "Bash" BUDGET_LIMIT=1 BUDGET_WARN=999
   [[ "$status" -eq 0 ]]
-  guard "$TEST_SID" "Edit"
+  guard "$TEST_SID" "Edit" BUDGET_LIMIT=1 BUDGET_WARN=999
   [[ "$status" -eq 2 ]]
 }
 
 @test "J3: LOOP_THRESHOLD=1 blocks on first call" {
-  seed_state "$TEST_SID" '{"count":0,"limit":200,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":0,"limit":500,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash" LOOP_THRESHOLD=1 LOOP_WINDOW=2
   [[ "$status" -eq 2 ]]
   [[ "$stderr" == *"LOOP DETECTED"* ]]
 }
 
 @test "J4: block message includes reset instructions" {
-  seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":500,"limit":500,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ "$stderr" == *"/token-budget-guard:reset"* ]]
 }
 
 @test "J5: loop block message includes reset instructions" {
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Edit","Edit","Edit","Edit","Edit"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":9,"limit":500,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Edit","Edit","Edit","Edit","Edit"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Bash"
   [[ "$stderr" == *"/token-budget-guard:reset"* ]]
 }
 
 @test "J6: old-format history entries work with loop detection" {
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Bash","Bash","Bash","Bash","Bash"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":9,"limit":500,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Bash","Bash","Bash","Bash","Bash"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "Edit"
   [[ "$status" -eq 2 ]]
   [[ "$stderr" == *"LOOP DETECTED"* ]]
@@ -564,32 +568,32 @@ teardown() {
 # K. Reset Bypass -- reset command must work even when blocked
 
 @test "K1: reset command bypasses hard limit" {
-  seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":500,"limit":500,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard_with_input "$TEST_SID" "Bash" '{"command":"for f in /tmp/claude-budget-guard-*.json; do jq . \"$f\"; done"}'
   [[ "$status" -eq 0 ]]
 }
 
 @test "K2: reset command bypasses loop detection" {
-  seed_state "$TEST_SID" '{"count":9,"limit":200,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Bash","Edit","Edit","Edit","Edit"],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":9,"limit":500,"warn_at":999,"history":["Bash","Bash","Bash","Bash","Bash","Edit","Edit","Edit","Edit"],"started":"2026-01-01T00:00:00Z"}'
   guard_with_input "$TEST_SID" "Bash" '{"command":"jq \".count = 0\" /tmp/claude-budget-guard-abc.json"}'
   [[ "$status" -eq 0 ]]
 }
 
 @test "K3: non-reset Bash still blocked at hard limit" {
-  seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":500,"limit":500,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard_with_input "$TEST_SID" "Bash" '{"command":"npm test"}'
   [[ "$status" -eq 2 ]]
   [[ "$stderr" == *"BUDGET EXCEEDED"* ]]
 }
 
 @test "K4: reset command still increments counter" {
-  seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":500,"limit":500,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard_with_input "$TEST_SID" "Bash" '{"command":"for f in /tmp/claude-budget-guard-*.json; do jq . \"$f\"; done"}'
-  [[ "$(read_state "$TEST_SID" '.count')" -eq 201 ]]
+  [[ "$(read_state "$TEST_SID" '.count')" -eq 501 ]]
 }
 
 @test "K5: non-Bash tool not eligible for reset bypass" {
-  seed_state "$TEST_SID" '{"count":200,"limit":200,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
+  seed_state "$TEST_SID" '{"count":500,"limit":500,"warn_at":999,"history":[],"started":"2026-01-01T00:00:00Z"}'
   guard_with_input "$TEST_SID" "Read" '{"file_path":"/tmp/claude-budget-guard-x.json"}'
   [[ "$status" -eq 2 ]]
 }

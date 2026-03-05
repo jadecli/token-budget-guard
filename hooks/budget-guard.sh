@@ -4,7 +4,7 @@
 set -euo pipefail
 
 # ── Configuration (env vars with defaults) ────────────────────────────────────
-BUDGET_LIMIT="${BUDGET_LIMIT:-200}"
+BUDGET_LIMIT="${BUDGET_LIMIT:-500}"
 BUDGET_WARN="${BUDGET_WARN:-$(( BUDGET_LIMIT * 70 / 100 ))}"
 LOOP_WINDOW="${LOOP_WINDOW:-10}"
 LOOP_THRESHOLD="${LOOP_THRESHOLD:-5}"               # identical fingerprints in window
@@ -92,9 +92,13 @@ fi
 
 # ── Update state ──────────────────────────────────────────────────────────────
 COUNT="$(echo "$STATE" | jq '.count')"
-LIMIT="$(echo "$STATE" | jq '.limit')"
-WARN_AT="$(echo "$STATE" | jq '.warn_at')"
 COUNT=$((COUNT + 1))
+
+# Sync limit/warn from env vars into state — env always wins over stale state.
+# This lets users adjust BUDGET_LIMIT mid-session without a full reset.
+LIMIT="$BUDGET_LIMIT"
+WARN_AT="$BUDGET_WARN"
+STATE="$(echo "$STATE" | jq --argjson l "$LIMIT" --argjson w "$WARN_AT" '.limit = $l | .warn_at = $w')"
 
 # Append fingerprint to history, keep only last LOOP_WINDOW entries
 STATE="$(echo "$STATE" | jq \
