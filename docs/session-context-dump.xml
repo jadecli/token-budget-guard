@@ -1,0 +1,219 @@
+<session-context agent="claude-opus-4-6" date="2026-03-06" repo="jadecli/token-budget-guard" branch="docs/claude-ecosystem-reference">
+
+<session-history>
+  <origin>Continued from compacted session c9eb176f-900e-476a-8357-ff0eabe36a52</origin>
+  <transcript>/Users/alexzh/.claude/projects/-Users-alexzh-llms/c9eb176f-900e-476a-8357-ff0eabe36a52.jsonl</transcript>
+  <total-prs-shipped>3</total-prs-shipped>
+</session-history>
+
+<completed-work>
+  <pr number="4" branch="feat/input-aware-fingerprinting" status="merged" commit="990395a">
+    <title>Edit fingerprints + chaos-test bug fixes + jq refactor</title>
+    <bugs-fixed count="6">
+      <bug>@tsv tab-collapse — switched to ASCII unit separator \x1f</bug>
+      <bug>Corrupted state crash — added validation + fail-open reinit</bug>
+      <bug>Reset bypass too broad — tightened to anchored regex</bug>
+      <bug>Path traversal via session_id — sanitized slashes/backslashes/colons</bug>
+      <bug>Edit false-positive loop — added old_string to fingerprint</bug>
+      <bug>Ambient env var pollution — tests now unset BUDGET_LIMIT/LOOP_THRESHOLD</bug>
+    </bugs-fixed>
+    <tests added="21" total="93" framework="bats"/>
+    <refactor>11 jq forks per invocation reduced to 4</refactor>
+  </pr>
+
+  <pr number="5" branch="feat/contracts" status="merged">
+    <title>Contracts system + agent teams integration + SDK dependency</title>
+    <new-modules>
+      <module path="lib/contracts.js">Task-scoped budgets: tool_calls, input_tokens, output_tokens, total_tokens, cost_usd. createContract(), checkContract(), recordUsage(), estimateCost(), getModelPricing(). Warns at 70%, exceeds at 100%.</module>
+      <module path="lib/token-counter.js">SDK wrapper: countInputTokens() via client.messages.countTokens(), extractUsage() from response, isAvailable() checks ANTHROPIC_API_KEY. Returns null without key.</module>
+      <module path="lib/team-budget.js">Team aggregation: listTeams(), getTeamConfig(), getAllBudgetStates(), aggregateTeamUsage(), checkTeamContract(). Sums across /tmp/claude-budget-guard-*.json files.</module>
+    </new-modules>
+    <new-hooks>
+      <hook event="TeammateIdle" path="hooks/teammate-idle.js">Exit 2 keeps teammate working when contract has budget. Exit 0 when exceeded or no contract.</hook>
+      <hook event="TaskCompleted" path="hooks/task-completed.js">Aggregates usage, warns on overage via hookSpecificOutput. Always exit 0 (advisory).</hook>
+    </new-hooks>
+    <new-skill path="skills/contract/SKILL.md">
+      /token-budget-guard:contract — presets: quick (50/$0.50), medium (200/$2), large (500/$10), unlimited
+    </new-skill>
+    <dependency>@anthropic-ai/sdk@0.78.0 pinned (no caret), Stainless-generated</dependency>
+    <tests added="33" contracts="23" team-budget="10" framework="node:test"/>
+    <version>2.0.0</version>
+  </pr>
+
+  <pr number="7" branch="docs/claude-ecosystem-reference" status="draft">
+    <title>Claude ecosystem reference</title>
+    <files>
+      <file path="docs/claude-ecosystem-reference.md">40 plugins catalog + pgvector architecture + connector tables</file>
+      <file path="docs/claude-customize-scrape.py">Structured scrape: 9 connectors, 10 skills, tool permissions, org metadata</file>
+      <file path="docs/jadecli-integration-analysis.json">4-layer model, connector coverage, skills overlap</file>
+      <file path="docs/HANDOVER.md">Reading order, 4 open decisions</file>
+      <file path="docs/session-context-dump.xml">This file</file>
+    </files>
+  </pr>
+</completed-work>
+
+<installed-state>
+  <plugin path="~/.claude/plugins/token-budget-guard/">
+    <version>2.0.0</version>
+    <commit>990395a (main, post-merge of PR #4 + #5)</commit>
+    <npm-installed>true</npm-installed>
+    <sdk>@anthropic-ai/sdk@0.78.0</sdk>
+  </plugin>
+  <hooks-registered path="~/.claude/settings.json">
+    <hook event="PreToolUse" command="/Users/alexzh/.claude/plugins/token-budget-guard/hooks/budget-guard.sh"/>
+    <hook event="TeammateIdle" command="node /Users/alexzh/.claude/plugins/token-budget-guard/hooks/teammate-idle.js"/>
+    <hook event="TaskCompleted" command="node /Users/alexzh/.claude/plugins/token-budget-guard/hooks/task-completed.js"/>
+  </hooks-registered>
+  <env-vars>
+    <var name="BUDGET_LIMIT" value="200" source="~/.claude/settings.json"/>
+    <var name="LOOP_THRESHOLD" value="8" source="~/.claude/settings.json"/>
+    <var name="CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS" value="1" source="~/.claude/settings.json"/>
+  </env-vars>
+  <other-hooks>
+    <hook event="SessionStart" command="node /Users/alexzh/.claude/hooks/gsd-check-update.js"/>
+    <hook event="PostToolUse" command="node /Users/alexzh/.claude/hooks/gsd-context-monitor.js"/>
+  </other-hooks>
+</installed-state>
+
+<repo-state>
+  <local-clone path="~/llms/token-budget-guard"/>
+  <source-clone path="~/.claude/sources/jadecli_token-budget-guard" is-git="false"/>
+  <remote>https://github.com/jadecli/token-budget-guard</remote>
+  <branches>
+    <branch name="main" tracking="origin/main" status="up-to-date"/>
+    <branch name="fix/input-aware-fingerprints" tracking="origin/fix/input-aware-fingerprints" note="stale, from other agent's partial fix"/>
+    <branch name="docs/claude-ecosystem-reference" tracking="origin/docs/claude-ecosystem-reference" status="current"/>
+  </branches>
+  <test-counts>
+    <suite file="tests/budget-guard.bats" count="93" framework="bats"/>
+    <suite file="tests/install-uninstall.bats" count="14" framework="bats"/>
+    <suite file="tests/contracts.test.js" count="23" framework="node:test"/>
+    <suite file="tests/team-budget.test.js" count="10" framework="node:test"/>
+    <total>140</total>
+  </test-counts>
+</repo-state>
+
+<key-files>
+  <file path="hooks/budget-guard.sh" role="PreToolUse hook (bash)">
+    <input-parsing>Single jq call with \x1f delimiter, extracts session_id, tool_name, command, file_path, pattern, old_string</input-parsing>
+    <fingerprints>
+      <pattern tool="Edit">Edit:/path#first40chars_of_old_string</pattern>
+      <pattern tool="Bash">Bash:command_first_80_chars</pattern>
+      <pattern tool="Read">Read:/path</pattern>
+      <pattern tool="Write">Write:/path</pattern>
+      <pattern tool="Grep">Grep:pattern_first_40_chars</pattern>
+      <pattern tool="Glob">Glob:pattern_first_40_chars</pattern>
+    </fingerprints>
+    <state-file>/tmp/claude-budget-guard-{sanitized_session_id}.json</state-file>
+    <exit-codes>0=allow 2=block</exit-codes>
+    <principle>Fail-open: never block due to own bugs</principle>
+  </file>
+  <file path="lib/contracts.js" role="Contract system">
+    <model-pricing per="1M tokens">
+      <model name="haiku-4.5" input="$0.80" output="$4.00"/>
+      <model name="sonnet-4.6" input="$3.00" output="$15.00"/>
+      <model name="opus-4.6" input="$15.00" output="$75.00"/>
+      <batch-discount>50%</batch-discount>
+    </model-pricing>
+    <contract-state>/tmp/claude-contracts/*.json</contract-state>
+    <warn-threshold>70%</warn-threshold>
+  </file>
+  <file path="lib/token-counter.js" role="SDK wrapper">
+    <api>client.messages.countTokens()</api>
+    <fallback>Returns null without ANTHROPIC_API_KEY</fallback>
+    <sdk-version>@anthropic-ai/sdk@0.78.0</sdk-version>
+  </file>
+  <file path="lib/team-budget.js" role="Agent team aggregation">
+    <team-config>~/.claude/teams/{team-name}/config.json</team-config>
+    <aggregation>Sums tool_calls across all /tmp/claude-budget-guard-*.json</aggregation>
+  </file>
+  <file path="hooks/teammate-idle.js" role="TeammateIdle hook">
+    <behavior>Reads most recent contract from /tmp/claude-contracts/. Budget remains → exit 2. Exceeded/none → exit 0.</behavior>
+  </file>
+  <file path="hooks/task-completed.js" role="TaskCompleted hook">
+    <behavior>Aggregates usage, checks contract, warns via hookSpecificOutput. Always exit 0.</behavior>
+  </file>
+  <file path="package.json" role="Package manifest">
+    <version>2.0.0</version>
+    <type>module</type>
+    <dependencies>{"@anthropic-ai/sdk": "0.78.0"}</dependencies>
+  </file>
+  <file path="skills/contract/SKILL.md" role="Contract skill">
+    <command>/token-budget-guard:contract</command>
+    <presets>quick(50/$0.50) medium(200/$2) large(500/$10) unlimited</presets>
+  </file>
+</key-files>
+
+<jadecli-ecosystem>
+  <layer id="L0" repo="jadecli/token-budget-guard">
+    <role>Safety net — PreToolUse hook on every tool call</role>
+    <surface>claude-code</surface>
+  </layer>
+  <layer id="L1" repo="jadecli/jadecli-plugins">
+    <role>Engineering methodology — adaptive-agent v1.2.0 + devtools</role>
+    <surface>claude-code</surface>
+    <coexistence>L0 prevents loops, L1 warns on destructive git ops. Both fire every tool call.</coexistence>
+  </layer>
+  <layer id="L2" repo="jadecli/knowledge-work-plugins">
+    <role>Role-based business knowledge — 11 plugins, 36+ connector refs</role>
+    <surface>claude-code cowork</surface>
+    <upstream>Fork of anthropics/knowledge-work-plugins</upstream>
+  </layer>
+  <layer id="L3" repo="jadecli/knowledge-teams-plugins">
+    <role>S-team orchestration — 10 C-suite agents compose over L2</role>
+    <surface>claude-code webmcp</surface>
+    <agents>CCO CDO CFO CHRO COO CPO CRO CSO CTO GC</agents>
+    <webmcp>jadecli.app (intranet) jadecli.com (marketplace)</webmcp>
+  </layer>
+  <connectors connected="9">GitHub Gmail GoogleCalendar GoogleDrive Linear Slack Sentry Vercel Context7</connectors>
+  <connectors-gap count="36+">Notion Asana Jira Monday ClickUp Microsoft365 HubSpot Close Clay ZoomInfo Fireflies Intercom Guru Box Egnyte Snowflake Databricks BigQuery Hex Canva Figma Amplitude Pendo Ahrefs SimilarWeb Klaviyo PubMed BioRender bioRxiv ClinicalTrials ChEMBL Synapse Wiley Owkin OpenTargets Benchling</connectors-gap>
+  <claude-ai-skills enabled="3" disabled="7">
+    <enabled>mcp-builder skill-creator web-artifacts-builder</enabled>
+    <disabled>algorithmic-art brand-guidelines canvas-design doc-coauthoring internal-comms slack-gif-creator theme-factory</disabled>
+  </claude-ai-skills>
+  <org id="jadecli-orgid-22ddd267-e411-4897-8711-65788596b9c6" display="alex-jadecli"/>
+</jadecli-ecosystem>
+
+<claude-code-plugins-official count="40">
+  <lsp count="11">typescript pyright rust-analyzer gopls clangd jdtls kotlin swift csharp php lua</lsp>
+  <dev-workflow count="14">plugin-dev feature-dev code-review code-simplifier commit-commands pr-review-toolkit claude-code-setup claude-md-management security-guidance hookify skill-creator agent-sdk-dev playground ralph-loop</dev-workflow>
+  <output-style count="2">explanatory-output-style learning-output-style</output-style>
+  <integrations count="13">github gitlab context7 stripe supabase firebase slack linear asana playwright greptile serena laravel-boost</integrations>
+</claude-code-plugins-official>
+
+<pgvector-proposal>
+  <database>Neon</database>
+  <extensions>vector pgrag pg_tiktoken</extensions>
+  <embedding-model>rag_bge_small_en_v15 (384 dims, preloaded in Neon)</embedding-model>
+  <reranker>rag_jina_reranker_v1_tiny_en (preloaded)</reranker>
+  <index>HNSW vector_cosine_ops</index>
+  <table>tool_registry (id, kind, source, name, description, schema_json, embedding, enabled, created_at)</table>
+  <cost>$0 embedding (in-db), ~200KB storage, ~5ms query</cost>
+  <advantage>Persistent shared index across agents/sessions. No external embedding API. Sub-ms search at scale.</advantage>
+</pgvector-proposal>
+
+<memory-files>
+  <file path="~/.claude/projects/-Users-alexzh-llms/memory/token-budget-guard.md">Full project reference (architecture, tests, env vars, shipped PRs)</file>
+  <file path="~/.claude/projects/-Users-alexzh-llms/memory/MEMORY.md">Index with token-budget-guard entry</file>
+</memory-files>
+
+<open-decisions count="4">
+  <decision id="1">Build pgvector router as Claude Code plugin with Neon schema + seed script?</decision>
+  <decision id="2">Which of 36+ missing connectors to prioritize? Notion+Jira+Asana unlocks 6 KWP plugins.</decision>
+  <decision id="3">jadecli.app + jadecli.com WebMCP stubs — Vercel serverless or standalone?</decision>
+  <decision id="4">Reconcile test count: analysis JSON says 86, actual is 140.</decision>
+</open-decisions>
+
+<user-preferences>
+  <pref>Concise output, no emojis, no filler</pref>
+  <pref>XML-first structured output</pref>
+  <pref>Action over planning — don't enter plan mode when task is clear</pref>
+  <pref>Parallel execution — split bulk work into 6+ agents</pref>
+  <pref>Cost-conscious — compact input, check cache, skip what's good</pref>
+  <pref>Autonomous end-to-end — commit, push, create PRs, merge without asking</pref>
+  <pref>Never commit without being asked</pref>
+  <pref>Read before edit, always</pref>
+  <pref>set -euo pipefail in bash scripts</pref>
+</user-preferences>
+
+</session-context>
