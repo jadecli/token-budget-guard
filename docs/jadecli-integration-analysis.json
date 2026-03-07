@@ -1,0 +1,174 @@
+{
+    "jadecli_github_repos": {
+        "jadecli/jadecli-plugins": {
+            "tagline": "Claude Code plugin marketplace for jadecli team",
+            "version": "1.1.0",
+            "releases": 4,
+            "latest_release": "adaptive-agent: v1.2.0",
+            "license": "MIT",
+            "plugins": {
+                "adaptive-agent": {
+                    "description": "Self-adapting agent bootstrap for any codebase. Auto-discovers conventions, enforces git safety, manages context, and ensures every change compounds existing effort.",
+                    "skills": [
+                        "bootstrap — codebase reconnaissance before any action",
+                        "git-safety — stash-before-write, clean starting points",
+                        "context-management — session compaction, cross-session memory",
+                        "compounding-review — 6-axis code review for integration quality",
+                        "tool-orchestration — parallel execution, evaluator-optimizer loops",
+                        "surface-awareness — detects CLI/Desktop/VS Code/Web/GitHub Actions surface"
+                    ],
+                    "commands": [
+                        "/adaptive-agent:bootstrap",
+                        "/adaptive-agent:merge-prs",
+                        "/adaptive-agent:review",
+                        "/adaptive-agent:safe-branch",
+                        "/adaptive-agent:setup-environment"
+                    ],
+                    "agents": ["codebase-reviewer", "pr-merger"],
+                    "hooks": "PreToolUse warnings on one-way-door git ops (push, merge, rebase, reset, delete)"
+                },
+                "devtools": {
+                    "description": "macOS developer tooling installer and configurator for Claude Code workflows.",
+                    "commands": ["/devtools:setup", "/devtools:status", "/devtools:doctor", "/devtools:update"],
+                    "manages": {
+                        "app_store": ["Amphetamine", "Maccy", "SnippetsLab", "RapidAPI (Paw)", "Proxyman", "TablePlus", "OK JSON", "Figma", "Flow"],
+                        "system_tools": ["1Password + CLI", "Docker Desktop"],
+                        "system_settings": ["file descriptor limits", "key repeat rate", "Dock optimization", "Spotlight exclusions", "SSH persistence", "Touch ID for sudo"]
+                    }
+                }
+            }
+        },
+        "jadecli/knowledge-work-plugins": {
+            "tagline": "Plugins that turn Claude into a specialist for your role, team, and company",
+            "note": "Fork of anthropics/knowledge-work-plugins, synced upstream",
+            "plugin_count": 11,
+            "plugins": {
+                "productivity":       {"connectors": "Slack, Notion, Asana, Linear, Jira, Monday, ClickUp, Microsoft 365"},
+                "sales":              {"connectors": "Slack, HubSpot, Close, Clay, ZoomInfo, Notion, Jira, Fireflies, Microsoft 365"},
+                "customer-support":   {"connectors": "Slack, Intercom, HubSpot, Guru, Jira, Notion, Microsoft 365"},
+                "product-management": {"connectors": "Slack, Linear, Asana, Monday, ClickUp, Jira, Notion, Figma, Amplitude, Pendo, Intercom, Fireflies"},
+                "marketing":          {"connectors": "Slack, Canva, Figma, HubSpot, Amplitude, Notion, Ahrefs, SimilarWeb, Klaviyo"},
+                "legal":              {"connectors": "Slack, Box, Egnyte, Jira, Microsoft 365"},
+                "finance":            {"connectors": "Snowflake, Databricks, BigQuery, Slack, Microsoft 365"},
+                "data":               {"connectors": "Snowflake, Databricks, BigQuery, Hex, Amplitude, Jira"},
+                "enterprise-search":  {"connectors": "Slack, Notion, Guru, Jira, Asana, Microsoft 365"},
+                "bio-research":       {"connectors": "PubMed, BioRender, bioRxiv, ClinicalTrials.gov, ChEMBL, Synapse, Wiley, Owkin, Open Targets, Benchling"},
+                "cowork-plugin-management": {"connectors": "none — meta-plugin for creating/customizing plugins"}
+            }
+        },
+        "jadecli/token-budget-guard": {
+            "tagline": "Deterministic tool call budgets, loop detection, and circuit breaking for Claude Code",
+            "implementation": "Pure bash + jq, zero tokens consumed",
+            "install": "curl one-liner → ~/.claude/plugins/token-budget-guard/",
+            "mechanism": "PreToolUse hook that runs before every tool call",
+            "checks_in_order": [
+                "1. Over budget? → BLOCK (hard stop at BUDGET_LIMIT)",
+                "2a. Identical call loop? → BLOCK (same tool + same args repeated LOOP_THRESHOLD times in LOOP_WINDOW)",
+                "2b. Same tool repeated? → WARN (same tool, different args, TOOL_REPEAT_THRESHOLD times)",
+                "3. Getting close to budget? → WARN (at BUDGET_WARN %)",
+                "4. All clear → ALLOW (silent)"
+            ],
+            "defaults": {
+                "BUDGET_LIMIT": 500,
+                "BUDGET_WARN": "70% of limit",
+                "LOOP_WINDOW": 10,
+                "LOOP_THRESHOLD": 5,
+                "TOOL_REPEAT_THRESHOLD": 9
+            },
+            "commands": ["/token-budget-guard:status", "/token-budget-guard:reset", "/token-budget-guard:help"],
+            "tests": 140
+        },
+        "jadecli/knowledge-teams-plugins": {
+            "tagline": "S-team compose layer + WebMCP tools — extends Anthropic's knowledge-work-plugins",
+            "upstream_fork": "jadecli/knowledge-work-plugins (synced to anthropics/knowledge-work-plugins at commit 477c893b)",
+            "structure": {
+                "s-team": {
+                    "description": "System prompts for 10 C-suite agent roles + template",
+                    "roles": ["CCO", "CDO", "CFO", "CHRO", "COO", "CPO", "CRO", "CSO", "CTO", "GC (General Counsel)"],
+                    "note": "Each mapped to a safety-research repo and fitness function"
+                },
+                "extensions": "Jade overlay skills + commands (win in conflict resolution over upstream)",
+                "webmcp": "TypeScript tool stubs for jadecli.app (agent intranet) and jadecli.com (marketplace)",
+                "compose": "Loader, resolver, manifest generator — reads upstream-ref.json to locate upstream plugin definitions",
+                "tests": "vitest test suite"
+            }
+        }
+    },
+    "integration_analysis": {
+        "layer_model": {
+            "L0_infrastructure": {
+                "repo": "jadecli/token-budget-guard",
+                "role": "Safety net for all Claude Code sessions",
+                "integration_point": "PreToolUse hook in ~/.claude/settings.json",
+                "relationship_to_org": "Protects token spend across all jadecli org members using Claude Code. Runs before any tool call regardless of which plugins are active."
+            },
+            "L1_engineering_process": {
+                "repo": "jadecli/jadecli-plugins",
+                "role": "How Claude operates inside codebases — the engineering methodology layer",
+                "integration_points": {
+                    "adaptive_agent_to_skills": "The adaptive-agent skills (bootstrap, git-safety, context-management, compounding-review, tool-orchestration, surface-awareness) are the Claude Code equivalent of the Claude.ai Skills panel. Both teach Claude process knowledge, but skills in Claude.ai are for the web UI while plugin skills are for Claude Code CLI/Desktop.",
+                    "adaptive_agent_to_connectors": "The git-safety hooks + surface-awareness skill complement the GitHub connector in Claude.ai — one operates at the CLI level (hooks enforce safety), the other at the web level (connector provides read/write API access).",
+                    "devtools_to_starred_project": "The devtools-plugin configures the local dev environment. The starred project 'jade-sdk-monolith' is likely where these tools get exercised — the monolith repo that all plugins target.",
+                    "to_token_budget_guard": "token-budget-guard's PreToolUse hook and adaptive-agent's PreToolUse hook coexist — budget-guard prevents runaway loops while adaptive-agent's hook warns on destructive git ops. Both fire on every tool call."
+                }
+            },
+            "L2_knowledge_work_roles": {
+                "repo": "jadecli/knowledge-work-plugins",
+                "role": "Role-based plugins — what Claude knows about each job function",
+                "integration_points": {
+                    "to_connectors": "The 11 KWP plugins reference connectors (Slack, Linear, Sentry, Gmail, Google Calendar, Google Drive, Vercel, etc.) that are ALREADY connected in the Claude.ai org. The org's connected connectors are the runtime backing for what KWP plugins declare in their .mcp.json files.",
+                    "to_skills": "KWP plugins bundle skills per role (e.g. productivity/skills/, sales/skills/). These are complementary to but separate from the Anthropic-authored Claude.ai skills. Claude.ai skills are creative/design-oriented; KWP skills are business-function-oriented.",
+                    "to_adaptive_agent": "KWP provides 'what to do' (role knowledge), adaptive-agent provides 'how to operate' (engineering process). Install both."
+                }
+            },
+            "L3_executive_orchestration": {
+                "repo": "jadecli/knowledge-teams-plugins",
+                "role": "S-team compose layer — turns KWP role plugins into coordinated C-suite agents",
+                "integration_points": {
+                    "to_knowledge_work_plugins": "Directly extends jadecli/knowledge-work-plugins via compose layer. upstream-ref.json pins the exact commit.",
+                    "to_connectors": "WebMCP tool stubs (jadecli.app intranet, jadecli.com marketplace) are NEW connectors that don't exist in the Claude.ai org yet.",
+                    "s_team_to_org": "The 10 C-suite roles each get a system prompt mapped to a safety-research repo and fitness function. Top of the stack.",
+                    "to_adaptive_agent": "Each S-team agent inherits adaptive-agent's engineering process in code contexts, and KWP role knowledge in business contexts."
+                }
+            }
+        },
+        "connector_coverage_map": {
+            "already_connected_in_org": {
+                "GitHub": "Used by: adaptive-agent (git-safety, merge-prs), all engineering workflows",
+                "Gmail": "Used by: productivity, sales, customer-support, enterprise-search KWP plugins",
+                "Google Calendar": "Used by: productivity KWP plugin",
+                "Google Drive": "Used by: productivity, enterprise-search KWP plugins",
+                "Linear": "Used by: productivity, product-management KWP plugins",
+                "Slack": "Used by: nearly ALL KWP plugins (9 of 11)",
+                "Sentry": "Used by: engineering debugging workflows, adaptive-agent review",
+                "Vercel": "Used by: deployment workflows, devtools-plugin",
+                "Context7": "Used by: mcp-builder skill (code docs lookup)"
+            },
+            "declared_in_kwp_but_not_connected": [
+                "Notion", "Asana", "Jira", "Monday", "ClickUp", "Microsoft 365",
+                "HubSpot", "Close", "Clay", "ZoomInfo", "Fireflies",
+                "Intercom", "Guru", "Box", "Egnyte",
+                "Snowflake", "Databricks", "BigQuery", "Hex",
+                "Canva", "Figma", "Amplitude", "Pendo", "Ahrefs", "SimilarWeb", "Klaviyo",
+                "PubMed", "BioRender", "bioRxiv", "ClinicalTrials.gov", "ChEMBL", "Synapse", "Wiley", "Owkin", "Open Targets", "Benchling"
+            ],
+            "new_from_knowledge_teams": ["jadecli.app (agent intranet WebMCP)", "jadecli.com (marketplace WebMCP)"]
+        },
+        "skills_overlap": {
+            "claude_ai_skills_enabled": ["mcp-builder", "skill-creator", "web-artifacts-builder"],
+            "claude_ai_skills_disabled": ["algorithmic-art", "brand-guidelines", "canvas-design", "doc-coauthoring", "internal-comms", "slack-gif-creator", "theme-factory"],
+            "claude_ai_skills_are": "Creative/design/meta tooling for the Claude.ai web interface",
+            "plugin_skills_are": "Engineering process + business role knowledge for Claude Code CLI/Desktop",
+            "overlap": "doc-coauthoring (Claude.ai) and productivity KWP plugin both address document workflows but at different surfaces. internal-comms (Claude.ai) and marketing/sales KWP plugins both address comms but for different audiences.",
+            "complementary_pattern": "Enable Claude.ai skills for web-based creative work. Install plugins for CLI-based engineering and business work. The org identity ties both surfaces to the same team."
+        },
+        "the_full_stack": [
+            "token-budget-guard    → prevents runaway sessions (bash hook, every tool call)",
+            "jadecli-plugins       → engineering methodology (adaptive-agent + devtools, Claude Code)",
+            "knowledge-work-plugins → role-based business knowledge (11 plugins, Claude Code + Cowork)",
+            "knowledge-teams-plugins → S-team orchestration (10 C-suite agents compose over KWP, WebMCP tools)",
+            "Claude.ai org skills   → creative/design skills (10 Anthropic skills, web UI)",
+            "Claude.ai org connectors → runtime tool access (9 connectors, shared across surfaces)"
+        ]
+    }
+}
