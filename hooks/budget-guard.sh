@@ -22,14 +22,17 @@ INPUT="$(cat)"
 # Extract all needed fields at once (single jq fork).
 # Uses \x1f (unit separator) as delimiter — NOT @tsv, because bash read
 # treats tab as IFS whitespace and collapses consecutive/leading tabs.
-IFS=$'\x1f' read -r SESSION_ID TOOL_NAME _CMD _FP _PAT _OLD < <(
+IFS=$'\x1f' read -r SESSION_ID TOOL_NAME _CMD _FP _PAT _OLD _URL _QUERY _SUBJECT < <(
   echo "$INPUT" | jq -rj '[
     (.session_id // ""),
     (.tool_name // ""),
     (.tool_input.command // ""),
     (.tool_input.file_path // ""),
     (.tool_input.pattern // ""),
-    (if .tool_name == "Edit" then (.tool_input.old_string // "")[0:40] else "" end)
+    (if .tool_name == "Edit" then (.tool_input.old_string // "")[0:40] else "" end),
+    (.tool_input.url // ""),
+    (.tool_input.query // ""),
+    (.tool_input.subject // "")
   ] | join("\u001f")' 2>/dev/null
   echo  # ensure trailing newline for read
 ) || true
@@ -67,6 +70,15 @@ case "$TOOL_NAME" in
     ;;
   Glob)
     [[ -n "$_PAT" ]] && FINGERPRINT="Glob:${_PAT:0:40}"
+    ;;
+  WebFetch)
+    [[ -n "$_URL" ]] && FINGERPRINT="WebFetch:${_URL:0:60}"
+    ;;
+  WebSearch)
+    [[ -n "$_QUERY" ]] && FINGERPRINT="WebSearch:${_QUERY:0:60}"
+    ;;
+  TaskCreate|TaskUpdate)
+    [[ -n "$_SUBJECT" ]] && FINGERPRINT="${TOOL_NAME}:${_SUBJECT:0:60}"
     ;;
 esac
 
