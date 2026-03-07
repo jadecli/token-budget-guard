@@ -11,7 +11,9 @@
   },
   "scripts": {
     "test": "bats tests/budget-guard.bats && bats tests/install.bats",
-    "test:contracts": "node --test tests/contracts.test.js"
+    "test:contracts": "node --test tests/contracts.test.js",
+    "test:teams": "node --test tests/team-budget.test.js",
+    "test:node": "node --test tests/contracts.test.js tests/team-budget.test.js"
   },
   "repository": {
     "type": "git",
