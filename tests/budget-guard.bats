@@ -210,6 +210,21 @@ teardown() {
   [[ "$fp" == Bash:* ]]
 }
 
+@test "D2i: WebFetch fingerprint uses url" {
+  guard_with_input "$TEST_SID" "WebFetch" '{"url":"https://example.com/api/v1/docs"}'
+  [[ "$(read_state "$TEST_SID" '.history[0]')" == "WebFetch:https://example.com/api/v1/docs" ]]
+}
+
+@test "D2j: WebSearch fingerprint uses query" {
+  guard_with_input "$TEST_SID" "WebSearch" '{"query":"claude agent teams documentation"}'
+  [[ "$(read_state "$TEST_SID" '.history[0]')" == "WebSearch:claude agent teams documentation" ]]
+}
+
+@test "D2k: TaskCreate fingerprint uses subject" {
+  guard_with_input "$TEST_SID" "TaskCreate" '{"subject":"implement N-014 jade-rag MCP server"}'
+  [[ "$(read_state "$TEST_SID" '.history[0]')" == "TaskCreate:implement N-014 jade-rag MCP server" ]]
+}
+
 @test "D3: history trimmed to LOOP_WINDOW size" {
   seed_state "$TEST_SID" '{"count":4,"limit":500,"warn_at":350,"history":["A","B","C","D"],"started":"2026-01-01T00:00:00Z"}'
   guard "$TEST_SID" "E" LOOP_WINDOW=3
