@@ -16,96 +16,110 @@ if ! command -v jq &>/dev/null; then
   exit 0  # allow — don't block the user over a missing dependency
 fi
 
-# ── Read stdin ────────────────────────────────────────────────────────────────
+# ── Read & parse stdin in a single jq call ────────────────────────────────────
 INPUT="$(cat)"
 
-SESSION_ID="$(echo "$INPUT" | jq -r '.session_id // empty' 2>/dev/null)" || true
-TOOL_NAME="$(echo "$INPUT" | jq -r '.tool_name // empty' 2>/dev/null)" || true
+# Extract all needed fields at once (single jq fork).
+# Uses \x1f (unit separator) as delimiter — NOT @tsv, because bash read
+# treats tab as IFS whitespace and collapses consecutive/leading tabs.
+IFS=$'\x1f' read -r SESSION_ID TOOL_NAME _CMD _FP _PAT _OLD < <(
+  echo "$INPUT" | jq -rj '[
+    (.session_id // ""),
+    (.tool_name // ""),
+    (.tool_input.command // ""),
+    (.tool_input.file_path // ""),
+    (.tool_input.pattern // ""),
+    (if .tool_name == "Edit" then (.tool_input.old_string // "")[0:40] else "" end)
+  ] | join("\u001f")' 2>/dev/null
+  echo  # ensure trailing newline for read
+) || true
 
 # Fallback: if no session_id, use parent PID for isolation
 if [[ -z "$SESSION_ID" ]]; then
   SESSION_ID="pid-$$"
 fi
 
+# Sanitize session_id — strip slashes and special chars to prevent path traversal
+SESSION_ID="${SESSION_ID//[\/\\:]/_}"
+
 if [[ -z "$TOOL_NAME" ]]; then
   exit 0  # malformed input — allow silently
 fi
 
 # ── Build human-readable fingerprint for loop detection ──────────────────────
-# "Bash:git status" instead of opaque "Bash:a1b2c3d4" —
-# shows WHAT is looping in /token-budget-guard:status output.
-# Falls back to bare tool name when tool_input is absent.
 FINGERPRINT="$TOOL_NAME"
 case "$TOOL_NAME" in
   Bash)
-    _CMD="$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)" || true
     [[ -n "$_CMD" ]] && FINGERPRINT="Bash:${_CMD:0:80}"
     ;;
-  Read|Write|Edit)
-    _FP="$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)" || true
+  Read|Write)
     [[ -n "$_FP" ]] && FINGERPRINT="${TOOL_NAME}:${_FP}"
     ;;
+  Edit)
+    if [[ -n "$_FP" && -n "$_OLD" ]]; then
+      FINGERPRINT="Edit:${_FP}#${_OLD:0:40}"
+    elif [[ -n "$_FP" ]]; then
+      FINGERPRINT="Edit:${_FP}"
+    fi
+    ;;
   Grep)
-    _PAT="$(echo "$INPUT" | jq -r '.tool_input.pattern // empty' 2>/dev/null)" || true
     [[ -n "$_PAT" ]] && FINGERPRINT="Grep:${_PAT:0:40}"
     ;;
   Glob)
-    _PAT="$(echo "$INPUT" | jq -r '.tool_input.pattern // empty' 2>/dev/null)" || true
     [[ -n "$_PAT" ]] && FINGERPRINT="Glob:${_PAT:0:40}"
     ;;
 esac
 
-# ── CHECK 0: Reset bypass ───────────────────────────────────────────────────
-# The /token-budget-guard:reset skill runs a Bash command that modifies state
-# files. Allow it through even when blocked — otherwise reset is a dead letter.
-if [[ "$TOOL_NAME" == "Bash" ]]; then
-  _RESET_CMD="$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)" || true
-  if [[ "$_RESET_CMD" == *"claude-budget-guard"* && "$_RESET_CMD" == *".json"* ]]; then
-    # Allow the reset command, but still count it
-    STATE_FILE="/tmp/claude-budget-guard-${SESSION_ID}.json"
-    if [[ -f "$STATE_FILE" ]]; then
-      STATE="$(cat "$STATE_FILE")"
-    else
-      STATE="$(jq -n --argjson limit "$BUDGET_LIMIT" --argjson warn "$BUDGET_WARN" \
-        '{count: 0, limit: $limit, warn_at: $warn, history: [], started: (now | todate)}')"
-    fi
-    COUNT="$(echo "$STATE" | jq '.count')"
-    COUNT=$((COUNT + 1))
-    STATE="$(echo "$STATE" | jq --argjson count "$COUNT" '.count = $count')"
-    echo "$STATE" > "$STATE_FILE"
-    exit 0
-  fi
-fi
-
 # ── State file ────────────────────────────────────────────────────────────────
 STATE_FILE="/tmp/claude-budget-guard-${SESSION_ID}.json"
 
-if [[ -f "$STATE_FILE" ]]; then
-  STATE="$(cat "$STATE_FILE")"
-else
-  STATE="$(jq -n \
-    --argjson limit "$BUDGET_LIMIT" \
-    --argjson warn "$BUDGET_WARN" \
+_new_state() {
+  jq -n --argjson limit "$BUDGET_LIMIT" --argjson warn "$BUDGET_WARN" \
     '{count: 0, limit: $limit, warn_at: $warn, history: [], started: (now | todate)}'
-  )"
+}
+
+# ── CHECK 0: Reset bypass ───────────────────────────────────────────────────
+# The /token-budget-guard:reset skill runs a specific Bash command.
+# Allow it through even when blocked — otherwise reset is a dead letter.
+if [[ "$TOOL_NAME" == "Bash" && "$_CMD" =~ ^for\ f\ in\ /tmp/claude-budget-guard-.*\.json ]]; then
+  if [[ -f "$STATE_FILE" ]]; then
+    STATE="$(cat "$STATE_FILE")"
+    if ! echo "$STATE" | jq -e 'type == "object" and (.count | type == "number")' &>/dev/null; then
+      STATE="$(_new_state)"
+    fi
+  else
+    STATE="$(_new_state)"
+  fi
+  STATE="$(echo "$STATE" | jq '.count += 1')"
+  echo "$STATE" > "$STATE_FILE"
+  exit 0
 fi
 
-# ── Update state ──────────────────────────────────────────────────────────────
+# ── Load or initialize state ─────────────────────────────────────────────────
+if [[ -f "$STATE_FILE" ]]; then
+  STATE="$(cat "$STATE_FILE")"
+  # Validate: must be a JSON object with numeric count and array history
+  if ! echo "$STATE" | jq -e 'type == "object" and (.count | type == "number") and (.history | type == "array")' &>/dev/null; then
+    STATE="$(_new_state)"
+  fi
+else
+  STATE="$(_new_state)"
+fi
+
+# ── Update state (single jq call) ────────────────────────────────────────────
+# Increment count, sync limit/warn from env, append fingerprint, trim history
 COUNT="$(echo "$STATE" | jq '.count')"
 COUNT=$((COUNT + 1))
-
-# Sync limit/warn from env vars into state — env always wins over stale state.
-# This lets users adjust BUDGET_LIMIT mid-session without a full reset.
 LIMIT="$BUDGET_LIMIT"
 WARN_AT="$BUDGET_WARN"
-STATE="$(echo "$STATE" | jq --argjson l "$LIMIT" --argjson w "$WARN_AT" '.limit = $l | .warn_at = $w')"
 
-# Append fingerprint to history, keep only last LOOP_WINDOW entries
 STATE="$(echo "$STATE" | jq \
+  --argjson count "$COUNT" \
+  --argjson limit "$LIMIT" \
+  --argjson warn "$WARN_AT" \
   --arg fp "$FINGERPRINT" \
   --argjson window "$LOOP_WINDOW" \
-  --argjson count "$COUNT" \
-  '.count = $count | .history = (.history + [$fp] | .[-$window:])'
+  '.count = $count | .limit = $limit | .warn_at = $warn | .history = (.history + [$fp] | .[-$window:])'
 )"
 
 # ── CHECK 1: Hard limit ──────────────────────────────────────────────────────
@@ -118,14 +132,20 @@ EOF
   exit 2
 fi
 
-# ── CHECK 2a: Exact loop detection (same fingerprint repeated) ───────────────
-LOOP_FP="$(echo "$STATE" | jq -r \
-  --argjson threshold "$LOOP_THRESHOLD" \
-  '[.history[] | {fp: .}] | group_by(.fp) | map({fp: .[0].fp, n: length}) | map(select(.n >= $threshold)) | .[0].fp // empty'
-)"
+# ── CHECK 2: Loop + repeat detection (single jq call) ────────────────────────
+# Returns unit-separator-delimited values: loop_fp and repeat_tool
+IFS=$'\x1f' read -r LOOP_FP REPEAT_TOOL < <(
+  echo "$STATE" | jq -rj \
+    --argjson lt "$LOOP_THRESHOLD" \
+    --argjson rt "$TOOL_REPEAT_THRESHOLD" \
+    '[ ( [.history[] | {fp: .}] | group_by(.fp) | map({fp: .[0].fp, n: length}) | map(select(.n >= $lt)) | .[0].fp // "" ),
+       ( [.history[] | split(":")[0]] | group_by(.) | map({tool: .[0], n: length}) | map(select(.n >= $rt)) | .[0].tool // "" )
+    ] | join("\u001f")'
+  echo
+) || true
 
+# CHECK 2a: Exact loop detection
 if [[ -n "$LOOP_FP" ]]; then
-  LOOP_TOOL="${LOOP_FP%%:*}"
   LOOP_COUNT="$(echo "$STATE" | jq --arg fp "$LOOP_FP" '[.history[] | select(. == $fp)] | length')"
   DISPLAY="${LOOP_FP:0:60}"
   echo "$STATE" > "$STATE_FILE"
@@ -137,16 +157,8 @@ EOF
   exit 2
 fi
 
-# ── CHECK 2b: Tool name repetition warning (different inputs, same tool) ────
-# Non-blocking — warns when one tool dominates the window even with varied inputs.
-# Combine with budget warning if both apply.
+# CHECK 2b: Tool repeat warning (non-blocking)
 WARN_MSG=""
-
-REPEAT_TOOL="$(echo "$STATE" | jq -r \
-  --argjson threshold "$TOOL_REPEAT_THRESHOLD" \
-  '[.history[] | split(":")[0]] | group_by(.) | map({tool: .[0], n: length}) | map(select(.n >= $threshold)) | .[0].tool // empty'
-)"
-
 if [[ -n "$REPEAT_TOOL" ]]; then
   REPEAT_COUNT="$(echo "$STATE" | jq --arg tool "$REPEAT_TOOL" '[.history[] | select(split(":")[0] == $tool)] | length')"
   WARN_MSG="TOOL REPEAT: ${REPEAT_TOOL} used ${REPEAT_COUNT}/${LOOP_WINDOW} times (varied inputs, not blocked)."
@@ -157,7 +169,6 @@ if (( COUNT >= WARN_AT )); then
   REMAINING=$((LIMIT - COUNT))
   PERCENT=$(( COUNT * 100 / LIMIT ))
   BUDGET_MSG="TOKEN BUDGET WARNING: ${COUNT}/${LIMIT} tool calls used (${PERCENT}%). ${REMAINING} calls remaining."
-  # Combine budget + repeat warnings if both apply
   if [[ -n "$WARN_MSG" ]]; then
     COMBINED="${BUDGET_MSG} ${WARN_MSG}"
   else
