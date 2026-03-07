@@ -1,0 +1,32 @@
+{
+  "name": "token-budget-guard",
+  "version": "2.0.0",
+  "description": "Deterministic tool call budgets, loop detection, and circuit breaking for Claude Code",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "bats tests/budget-guard.bats && bats tests/install.bats",
+    "test:contracts": "node --test tests/contracts.test.js",
+    "test:teams": "node --test tests/team-budget.test.js",
+    "test:node": "node --test tests/contracts.test.js tests/team-budget.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jadecli/token-budget-guard.git"
+  },
+  "keywords": ["claude-code", "budget", "hooks", "tokens"],
+  "author": "jadecli",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/jadecli/token-budget-guard/issues"
+  },
+  "homepage": "https://github.com/jadecli/token-budget-guard#readme",
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.78.0"
+  }
+}
