@@ -748,3 +748,80 @@ teardown() {
   guard_with_input "$TEST_SID" "Bash" '{"command":null}'
   [[ "$(read_state "$TEST_SID" '.history[0]')" == "Bash" ]]
 }
+
+# P. WebFetch / WebSearch / TaskCreate Fingerprints
+
+@test "P1: WebFetch fingerprint uses URL" {
+  guard_with_input "$TEST_SID" "WebFetch" '{"url":"https://example.com/page"}'
+  [[ "$(read_state "$TEST_SID" '.history[0]')" == "WebFetch:https://example.com/page" ]]
+}
+
+@test "P2: WebFetch fingerprint truncated at 60 chars" {
+  local long_url
+  long_url="https://example.com/$(printf 'a%.0s' {1..80})"
+  guard_with_input "$TEST_SID" "WebFetch" '{"url":"'"$long_url"'"}'
+  local fp
+  fp="$(read_state "$TEST_SID" '.history[0]')"
+  [[ "${#fp}" -le 69 ]]   # "WebFetch:" = 9 + 60 = 69
+  [[ "$fp" == WebFetch:* ]]
+}
+
+@test "P3: WebSearch fingerprint uses query" {
+  guard_with_input "$TEST_SID" "WebSearch" '{"query":"how to fix bash loops"}'
+  [[ "$(read_state "$TEST_SID" '.history[0]')" == "WebSearch:how to fix bash loops" ]]
+}
+
+@test "P4: WebSearch fingerprint truncated at 60 chars" {
+  local long_query
+  long_query="$(printf 'q%.0s' {1..80})"
+  guard_with_input "$TEST_SID" "WebSearch" '{"query":"'"$long_query"'"}'
+  local fp
+  fp="$(read_state "$TEST_SID" '.history[0]')"
+  [[ "${#fp}" -le 70 ]]   # "WebSearch:" = 10 + 60 = 70
+  [[ "$fp" == WebSearch:* ]]
+}
+
+@test "P5: TaskCreate fingerprint uses subject" {
+  guard_with_input "$TEST_SID" "TaskCreate" '{"subject":"Build jade-agents package"}'
+  [[ "$(read_state "$TEST_SID" '.history[0]')" == "TaskCreate:Build jade-agents package" ]]
+}
+
+@test "P6: TaskUpdate fingerprint uses subject" {
+  guard_with_input "$TEST_SID" "TaskUpdate" '{"subject":"Update namespace","taskId":"42"}'
+  [[ "$(read_state "$TEST_SID" '.history[0]')" == "TaskUpdate:Update namespace" ]]
+}
+
+@test "P7: different TaskCreate subjects produce different fingerprints" {
+  guard_with_input "$TEST_SID" "TaskCreate" '{"subject":"Task A"}'
+  guard_with_input "$TEST_SID" "TaskCreate" '{"subject":"Task B"}'
+  local fp1 fp2
+  fp1="$(read_state "$TEST_SID" '.history[0]')"
+  fp2="$(read_state "$TEST_SID" '.history[1]')"
+  [[ "$fp1" != "$fp2" ]]
+}
+
+@test "P8: 5 TaskCreate with different subjects do NOT trigger loop" {
+  for i in 1 2 3 4 5; do
+    guard_with_input "$TEST_SID" "TaskCreate" '{"subject":"Task '"$i"'"}'
+    [[ "$status" -eq 0 ]]
+  done
+}
+
+@test "P9: 5 TaskCreate with same subject DO trigger loop" {
+  for i in 1 2 3 4; do
+    guard_with_input "$TEST_SID" "TaskCreate" '{"subject":"Same task"}'
+  done
+  [[ "$status" -eq 0 ]]
+  guard_with_input "$TEST_SID" "TaskCreate" '{"subject":"Same task"}'
+  [[ "$status" -eq 2 ]]
+}
+
+@test "P10: TaskCreate without subject falls back to bare tool name" {
+  guard_with_input "$TEST_SID" "TaskCreate" '{"description":"no subject here"}'
+  [[ "$(read_state "$TEST_SID" '.history[0]')" == "TaskCreate" ]]
+}
+
+@test "P11: WebFetch without url falls back to bare tool name" {
+  guard_with_input "$TEST_SID" "WebFetch" '{"headers":{}}'
+  [[ "$(read_state "$TEST_SID" '.history[0]')" == "WebFetch" ]]
+}
